@@ -102,11 +102,11 @@ final class NoteManager {
       <li><input type="checkbox" contenteditable="false">Select text, then use the toolbar to style it</li>
       <li><input type="checkbox" contenteditable="false">Press <b>⌥⌘N</b> anywhere for a new note</li>
       <li><input type="checkbox" contenteditable="false"><b>Pull the curled corner</b> ↘ to tear a fresh page off the pad</li>
-      <li><input type="checkbox" contenteditable="false">Hit <b>✏️</b> in the toolbar and doodle on me</li>
+      <li><input type="checkbox" contenteditable="false">Hit <b>✏️</b> up top and doodle on me</li>
       <li><input type="checkbox" contenteditable="false">Click <b>⋯</b> up top for All Notes, Help, and more</li>
     </ul>
     <div><br></div>
-    <div>Type a name straight into the bar up top. 📌 pins a note on top of everything and clips a paperclip to it. Everything saves itself.</div>
+    <div>Type a name straight into the bar up top. 📌 pins a note on top of everything, on every desktop. Everything saves itself.</div>
     """
 }
 
