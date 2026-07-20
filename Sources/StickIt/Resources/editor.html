@@ -1,0 +1,613 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>
+  :root { --bg: #FFF3A3; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: transparent; overflow: hidden; }
+  body { font: 14px/1.5 -apple-system, sans-serif; -webkit-user-select: none; user-select: none; }
+
+  /* the whole physical sheet of paper — bar, toolbar, page, curl — moves as ONE unit */
+  #card {
+    height: 100%; display: flex; flex-direction: column; position: relative;
+    border-radius: 6px; overflow: hidden;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,.4) 0%, rgba(255,255,255,.08) 35%, rgba(0,0,0,0) 55%, rgba(0,0,0,.07) 100%),
+      var(--bg);
+    transform-origin: 50% 0%;
+  }
+  #card.peeling { transition: none; }
+  #card.settling { transition: clip-path .28s ease, transform .28s ease; }
+
+  /* ---------- window bar: drag to move, buttons for everything else ---------- */
+  #bar {
+    display: flex; align-items: center; gap: 6px; flex: 0 0 auto;
+    height: 30px; padding: 0 8px; background: rgba(0,0,0,.07);
+    -webkit-app-region: no-drag;
+  }
+  #bar button {
+    border: none; background: transparent; cursor: pointer; padding: 3px;
+    border-radius: 5px; color: rgba(0,0,0,.55); font-size: 13px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #bar button:hover { background: rgba(0,0,0,.09); }
+  #bar button.on { background: rgba(0,0,0,.16); }
+  #bar svg { width: 15px; height: 15px; display: block; }
+  #collapseBtn svg { transition: transform .15s ease; }
+  #collapseBtn.flipped svg { transform: rotate(180deg); }
+  #nameLabel, #nameInput {
+    flex: 1 1 auto; min-width: 0; font: 12px/1 -apple-system; font-weight: 600;
+    padding: 4px 2px;
+  }
+  #nameLabel {
+    color: rgba(0,0,0,.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    cursor: default;
+  }
+  #nameLabel.placeholder { color: rgba(0,0,0,.32); font-weight: 500; }
+  #nameInput {
+    display: none; border: none; background: transparent; outline: none;
+    color: rgba(0,0,0,.72); -webkit-user-select: text; user-select: text; cursor: text;
+  }
+  .dotColor {
+    width: 14px; height: 14px; border-radius: 50%; background: var(--bg);
+    border: 1.5px solid rgba(0,0,0,.25);
+  }
+
+  /* ---------- formatting toolbar ---------- */
+  #toolbar {
+    display: flex; align-items: center; gap: 2px; flex-wrap: nowrap; flex: 0 0 auto;
+    padding: 4px 8px; background: rgba(0,0,0,.045);
+    overflow-x: auto; scrollbar-width: none;
+  }
+  #toolbar::-webkit-scrollbar { display: none; }
+  #toolbar button, #toolbar select {
+    border: none; background: transparent; border-radius: 5px;
+    font: 13px -apple-system, sans-serif; color: rgba(0,0,0,.65);
+    padding: 3px 7px; cursor: pointer; -webkit-appearance: none;
+  }
+  #toolbar button:hover, #toolbar select:hover { background: rgba(0,0,0,.08); }
+  #toolbar button:active, #toolbar button.on { background: rgba(0,0,0,.14); }
+  #toolbar .b { font-weight: 700; }
+  #toolbar .i { font-style: italic; }
+  #toolbar .u { text-decoration: underline; }
+  #toolbar .sep { width: 1px; height: 16px; background: rgba(0,0,0,.12); margin: 0 4px; flex: 0 0 auto; }
+  #toolbar .pdot {
+    width: 15px; height: 15px; border-radius: 50%; padding: 0; margin: 0 2px;
+    border: 1.5px solid rgba(255,255,255,.7); flex: 0 0 auto;
+  }
+
+  body.collapsed #toolbar, body.collapsed #wrap, body.collapsed #foldband, body.collapsed #curl { display: none; }
+  body.collapsed #card { border-radius: 6px; }
+
+  /* ---------- page ---------- */
+  #wrap { flex: 1 1 auto; overflow-y: auto; position: relative; box-shadow: inset 0 10px 12px -12px rgba(0,0,0,.35); }
+  #editor {
+    min-height: 100%; outline: none; -webkit-user-select: text; user-select: text;
+    padding: 10px 14px 56px; color: #1d1d1f; caret-color: #1d1d1f; word-wrap: break-word;
+  }
+  /* Ruled backgrounds are a fixed-pitch pattern painted behind the text, not tied to
+     actual line boxes — so every element must be forced to the same 28px pitch (no
+     heading/list margins, no font-size changing a line's height) or the rule drifts
+     out from under the text after the first size/format change. */
+  #editor.lined, #editor.grid { line-height: 28px; background-position: 0 10px; }
+  #editor.lined *, #editor.grid * { line-height: 28px !important; margin: 0 !important; }
+  #editor.lined {
+    background-image: repeating-linear-gradient(to bottom, transparent 0 27px, rgba(0,0,0,.12) 27px 28px);
+  }
+  #editor.grid {
+    background-image:
+      repeating-linear-gradient(to bottom, transparent 0 27px, rgba(0,0,0,.11) 27px 28px),
+      repeating-linear-gradient(to right, transparent 0 27px, rgba(0,0,0,.07) 27px 28px);
+  }
+  #editor:empty::before { content: "Jot something down…"; color: rgba(0,0,0,.35); pointer-events: none; }
+  #editor h1 { font-size: 1.45em; margin: .4em 0 .2em; }
+  #editor h2 { font-size: 1.2em; margin: .4em 0 .2em; }
+  #editor ul, #editor ol { margin: .2em 0; padding-left: 1.6em; }
+  #editor ul.cl { list-style: none; padding-left: .3em; }
+  #editor ul.cl li { margin: .12em 0; }
+  #editor ul.cl input[type=checkbox] { width: 15px; height: 15px; margin: 0 7px -2px 0; accent-color: rgba(0,0,0,.6); cursor: pointer; }
+  #editor ul.cl li.done { text-decoration: line-through; opacity: .5; }
+  #editor blockquote { margin: .3em 0; padding-left: .8em; border-left: 3px solid rgba(0,0,0,.25); }
+
+  #cv { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; }
+  body.draw #cv { pointer-events: auto; cursor: crosshair; }
+  body.draw #editor { -webkit-user-select: none; }
+
+  /* the whole bottom edge bends up a little, like paper on a pad */
+  #foldband {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 22px; pointer-events: none; z-index: 4;
+    background: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.06) 40%, rgba(255,255,255,.35) 68%, rgba(0,0,0,.2) 100%);
+  }
+  /* curled corner: grab and pull toward the center to tear the page off */
+  #curl {
+    position: absolute; bottom: 0; right: 0; width: 56px; height: 56px; z-index: 5; cursor: grab;
+    background: linear-gradient(315deg,
+      rgba(0,0,0,.34) 0%, rgba(0,0,0,.13) 36%, rgba(0,0,0,.28) 46%,
+      rgba(255,255,255,.8) 52%, rgba(255,255,255,.28) 68%, rgba(255,255,255,0) 100%);
+    border-top-left-radius: 12px;
+    box-shadow: -8px -8px 16px -8px rgba(0,0,0,.4);
+    transition: width .12s, height .12s;
+  }
+  #curl:hover { width: 64px; height: 64px; }
+  #curl:active { cursor: grabbing; }
+  #peelhint {
+    position: absolute; bottom: 52px; right: 52px; z-index: 6; display: none;
+    background: rgba(0,0,0,.78); color: #fff; font-size: 11px; font-weight: 600;
+    padding: 4px 9px; border-radius: 7px; pointer-events: none; white-space: nowrap;
+  }
+
+  /* resize handles — bottom-right corner is reserved for the tear-off curl.
+     Straight edges (E/S) resize one axis; the other three corners (NW/NE/SW)
+     resize diagonally, same as any normal macOS window. */
+  .rz { position: absolute; z-index: 6; }
+  #rzE { top: 0; right: 0; bottom: 56px; width: 6px; cursor: ew-resize; }
+  #rzS { left: 0; bottom: 0; right: 56px; height: 6px; cursor: ns-resize; }
+  .rzCorner { width: 12px; height: 12px; z-index: 7; }
+  #rzNW { top: 0; left: 0; cursor: nwse-resize; }
+  #rzNE { top: 0; right: 0; cursor: nesw-resize; }
+  #rzSW { left: 0; bottom: 0; cursor: nesw-resize; }
+
+  /* floating glass palette, docked along the right edge while drawing.
+     backdrop-filter is a bonus where it renders, but the see-through look does NOT depend
+     on it: a near-white tint blends into pale note paper with barely any contrast, so a
+     cool, slightly saturated tint is used instead — that's what actually reads as "glass"
+     and lets the text underneath show through instead of just looking like a solid chip. */
+  #drawbar {
+    position: absolute; top: 50%; right: 8px; transform: translateY(-50%);
+    display: none; flex-direction: column; align-items: center; gap: 6px; z-index: 6;
+    background: rgba(205,222,235,.5);
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    backdrop-filter: blur(10px) saturate(160%);
+    border: 1px solid rgba(255,255,255,.55);
+    padding: 8px 6px; border-radius: 16px;
+    box-shadow: 0 6px 16px rgba(0,0,0,.15), inset 0 1px 0 rgba(255,255,255,.45);
+  }
+  body.draw #drawbar { display: flex; }
+  #drawbar button { border: none; padding: 0; cursor: pointer; background: transparent; line-height: 1; }
+  #drawbar .dsep { width: 14px; height: 1px; background: rgba(0,0,0,.18); flex: 0 0 auto; }
+  #drawbar .pdot2 {
+    width: 13px; height: 13px; border-radius: 50%; border: 2px solid transparent; flex: 0 0 auto;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.12);
+  }
+  #drawbar .pdot2.on { border-color: rgba(255,255,255,.95); box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+  #drawbar .tool {
+    width: 22px; height: 22px; border-radius: 50%; flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: rgba(0,0,0,.6);
+  }
+  #drawbar .tool.on, #drawbar .tool:hover { background: rgba(0,0,0,.12); }
+  #drawbar .tool.done { background: rgba(26,127,55,.88); color: #fff; font-weight: 700; font-size: 12px; }
+  #drawbar .tool.done:hover { background: rgba(26,127,55,1); }
+</style>
+
+<div id="card">
+  <div id="bar">
+    <button id="closeBtn" title="Hide this note">✕</button>
+    <button id="collapseBtn" title="Collapse">
+      <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <div id="nameLabel" class="placeholder">Name me…</div>
+    <input id="nameInput" placeholder="Name me…" spellcheck="false">
+    <button id="colorBtn" title="Color &amp; paper"><span class="dotColor"></span></button>
+    <button id="pinBtn" title="Pin: keep on top &amp; on every desktop">📌</button>
+    <button id="drawBtn" title="Draw on this note">✏️</button>
+    <button id="shareBtn" title="Share / export">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v12"/><path d="M7.5 7.5 12 3l4.5 4.5"/><path d="M5 12v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>
+      </svg>
+    </button>
+    <button id="moreBtn" title="All Notes, Help, and more">⋯</button>
+  </div>
+
+  <div id="toolbar">
+    <button class="b" title="Bold (⌘B)" data-cmd="bold">B</button>
+    <button class="i" title="Italic (⌘I)" data-cmd="italic">I</button>
+    <button class="u" title="Underline (⌘U)" data-cmd="underline">U</button>
+    <div class="sep"></div>
+    <button title="Bullet list (or type “- ” at a line start)" data-cmd="insertUnorderedList">•&nbsp;List</button>
+    <button title="Checklist (or type “[] ” at a line start)" id="checklistBtn">☑︎&nbsp;Todo</button>
+    <div class="sep"></div>
+    <select id="font" title="Font — select text first to change just that text">
+      <option value="" disabled selected>Font</option>
+      <option value="-apple-system">System</option>
+      <option value="ui-rounded">Rounded</option>
+      <option value="Georgia">Serif</option>
+      <option value="Menlo">Mono</option>
+      <option value="Marker Felt">Marker</option>
+    </select>
+    <select id="size" title="Text size — select text first to change just that text">
+      <option value="" disabled selected>Size</option>
+      <option value="2">Small</option>
+      <option value="3">Normal</option>
+      <option value="5">Large</option>
+      <option value="7">Huge</option>
+    </select>
+    <div class="sep"></div>
+    <button class="pdot" style="background:#1d1d1f" title="Black text" data-color="#1d1d1f"></button>
+    <button class="pdot" style="background:#c0392b" title="Red text" data-color="#c0392b"></button>
+    <button class="pdot" style="background:#1a5fb4" title="Blue text" data-color="#1a5fb4"></button>
+    <button class="pdot" style="background:#1a7f37" title="Green text" data-color="#1a7f37"></button>
+  </div>
+
+  <div id="wrap">
+    <div id="editor" contenteditable="true" spellcheck="true" autocorrect="on" autocapitalize="on"></div>
+    <canvas id="cv"></canvas>
+  </div>
+
+  <div id="foldband"></div>
+  <div id="curl" title="Pull me to tear off a new note"></div>
+  <div id="peelhint">New note? Keep pulling ⤴</div>
+  <div class="rz" id="rzE"></div>
+  <div class="rz" id="rzS"></div>
+  <div class="rz rzCorner" id="rzNW"></div>
+  <div class="rz rzCorner" id="rzNE"></div>
+  <div class="rz rzCorner" id="rzSW"></div>
+
+  <div id="drawbar">
+    <button class="pdot2 on" style="background:#1d1d1f" data-pen="#1d1d1f" title="Black pen"></button>
+    <button class="pdot2" style="background:#c0392b" data-pen="#c0392b" title="Red pen"></button>
+    <button class="pdot2" style="background:#1a5fb4" data-pen="#1a5fb4" title="Blue pen"></button>
+    <button class="pdot2" style="background:#1a7f37" data-pen="#1a7f37" title="Green pen"></button>
+    <div class="dsep"></div>
+    <button class="tool" id="eraserBtn" title="Eraser">🧽</button>
+    <button class="tool" id="clearBtn" title="Erase the whole drawing">🗑</button>
+    <div class="dsep"></div>
+    <button class="tool done" id="doneBtn" title="Done drawing">✓</button>
+  </div>
+</div>
+
+<script>
+const card = document.getElementById('card');
+const bar = document.getElementById('bar');
+const ed = document.getElementById('editor');
+const wrap = document.getElementById('wrap');
+const cv = document.getElementById('cv');
+const curl = document.getElementById('curl');
+const peelhint = document.getElementById('peelhint');
+const nameInput = document.getElementById('nameInput');
+const nameLabel = document.getElementById('nameLabel');
+const pinBtn = document.getElementById('pinBtn');
+const dpr = window.devicePixelRatio || 1;
+let ctx = cv.getContext('2d');
+let saveTimer, hasInk = false;
+
+function post(name, body) { try { webkit.messageHandlers[name].postMessage(body || {}); } catch (e) {} }
+function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(doSave, 350); }
+function doSave() {
+  post('save', { html: ed.innerHTML, text: ed.innerText, md: toMarkdown(), drawing: hasInk ? cv.toDataURL('image/png') : '' });
+}
+
+/* ---- called from Swift ---- */
+function setNote(n) {
+  ed.innerHTML = n.html || '';
+  setColor(n.hex);
+  setPaper(n.paper || 'plain');
+  setPinned(!!n.pinned);
+  setCollapsed(!!n.collapsed);
+  nameInput.value = n.name || '';
+  syncNameLabel();
+  if (n.drawing) {
+    const img = new Image();
+    img.onload = () => { sizeCanvas(img.height / dpr); ctx.drawImage(img, 0, 0, img.width / dpr, img.height / dpr); hasInk = true; };
+    img.src = n.drawing;
+  }
+  ed.focus();
+}
+function setColor(hex) { document.documentElement.style.setProperty('--bg', hex); }
+function setPaper(style) { ed.classList.remove('lined', 'grid'); if (style !== 'plain') ed.classList.add(style); }
+function setPinned(on) { pinBtn.classList.toggle('on', on); }
+function setCollapsed(on) {
+  document.body.classList.toggle('collapsed', on);
+  const btn = document.getElementById('collapseBtn');
+  btn.classList.toggle('flipped', on);
+  btn.title = on ? 'Expand' : 'Collapse';
+}
+
+function syncNameLabel() {
+  nameLabel.textContent = nameInput.value || 'Name me…';
+  nameLabel.classList.toggle('placeholder', !nameInput.value);
+}
+function startRename() {
+  nameLabel.style.display = 'none';
+  nameInput.style.display = 'block';
+  nameInput.focus();
+  nameInput.select();
+}
+function commitRename() {
+  nameInput.style.display = 'none';
+  nameLabel.style.display = 'block';
+  syncNameLabel();
+  post('ui', { action: 'rename', name: nameInput.value });
+}
+nameInput.addEventListener('blur', commitRename);
+nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') nameInput.blur(); });
+
+/* ---- window bar: draggable by default; double-click the name to rename ---- */
+bar.addEventListener('mousedown', e => {
+  if (e.target.closest('button') || e.target === nameInput) return;
+  e.preventDefault();
+  post('win', { phase: 'dragStart' });
+  const move = ev => post('win', { phase: 'drag', dx: ev.screenX - e.screenX, dy: ev.screenY - e.screenY });
+  const up = () => { post('win', { phase: 'end' }); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  window.addEventListener('mousemove', move);
+  window.addEventListener('mouseup', up);
+});
+bar.addEventListener('dblclick', e => {
+  if (e.target.closest('button')) return;
+  startRename();
+});
+
+document.getElementById('closeBtn').addEventListener('click', () => post('ui', { action: 'close' }));
+document.getElementById('collapseBtn').addEventListener('click', () => post('ui', { action: 'collapse' }));
+pinBtn.addEventListener('click', () => post('ui', { action: 'pin' }));
+
+function menuButton(id, action) {
+  document.getElementById(id).addEventListener('click', e => {
+    const r = e.currentTarget.getBoundingClientRect();
+    post('ui', { action, x: r.left, y: r.bottom });
+  });
+}
+menuButton('colorBtn', 'colorMenu');
+menuButton('shareBtn', 'shareMenu');
+menuButton('moreBtn', 'moreMenu');
+
+/* ---- resize ---- */
+function wireResize(el, edge) {
+  el.addEventListener('mousedown', e => {
+    e.preventDefault();
+    post('win', { phase: 'resizeStart' });
+    const move = ev => post('win', { phase: 'resize', edge, dx: ev.screenX - e.screenX, dy: ev.screenY - e.screenY });
+    const up = () => { post('win', { phase: 'end' }); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+}
+wireResize(document.getElementById('rzE'), 'e');
+wireResize(document.getElementById('rzS'), 's');
+wireResize(document.getElementById('rzNW'), 'nw');
+wireResize(document.getElementById('rzNE'), 'ne');
+wireResize(document.getElementById('rzSW'), 'sw');
+
+/* ---- formatting toolbar ---- */
+document.querySelectorAll('#toolbar [data-cmd]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); cmd(b.dataset.cmd); }));
+document.querySelectorAll('#toolbar [data-color]').forEach(b => b.addEventListener('click', e => { e.preventDefault(); cmd('foreColor', b.dataset.color); }));
+document.getElementById('font').addEventListener('change', e => { cmd('fontName', e.target.value); e.target.selectedIndex = 0; });
+document.getElementById('size').addEventListener('change', e => { cmd('fontSize', e.target.value); e.target.selectedIndex = 0; });
+document.getElementById('checklistBtn').addEventListener('click', e => { e.preventDefault(); insertChecklist(); });
+document.getElementById('toolbar').addEventListener('mousedown', e => { if (e.target.tagName !== 'SELECT') e.preventDefault(); });
+
+let savedRange = null;
+document.addEventListener('selectionchange', () => {
+  const s = getSelection();
+  if (s.rangeCount && ed.contains(s.anchorNode)) savedRange = s.getRangeAt(0).cloneRange();
+});
+function cmd(name, value) {
+  ed.focus();
+  if (savedRange) { const s = getSelection(); s.removeAllRanges(); s.addRange(savedRange); }
+  if (name === 'fontName') {
+    document.execCommand('styleWithCSS', false, true);
+    document.execCommand(name, false, value);
+    document.execCommand('styleWithCSS', false, false);
+  } else {
+    document.execCommand(name, false, value || null);
+  }
+  scheduleSave();
+}
+
+/* ---- checklist ---- */
+function insertChecklist() {
+  ed.focus();
+  document.execCommand('insertUnorderedList');
+  const li = closest(sel().anchorNode, 'li');
+  if (!li) return;
+  const ul = li.parentElement;
+  if (ul.classList.contains('cl')) { ul.classList.remove('cl'); ul.querySelectorAll('input[type=checkbox]').forEach(c => c.remove()); }
+  else { ul.classList.add('cl'); ul.querySelectorAll(':scope > li').forEach(addBox); }
+  scheduleSave();
+}
+function addBox(li) {
+  if (li.querySelector(':scope > input[type=checkbox]')) return;
+  const box = document.createElement('input');
+  box.type = 'checkbox'; box.contentEditable = 'false';
+  li.insertBefore(box, li.firstChild);
+}
+function sel() { return window.getSelection(); }
+function closest(node, selector) {
+  while (node && node !== ed) { if (node.nodeType === 1 && node.matches(selector)) return node; node = node.parentNode; }
+  return null;
+}
+ed.addEventListener('click', e => {
+  if (e.target.matches && e.target.matches('input[type=checkbox]')) {
+    const box = e.target;
+    setTimeout(() => {
+      if (box.checked) box.setAttribute('checked', ''); else box.removeAttribute('checked');
+      box.closest('li').classList.toggle('done', box.checked);
+      doSave();
+    }, 0);
+  }
+});
+ed.addEventListener('keydown', e => {
+  if (e.key !== 'Enter') return;
+  const li = closest(sel().anchorNode, 'ul.cl > li');
+  if (!li) return;
+  if (li.innerText.trim() === '') return;
+  setTimeout(() => {
+    const li2 = closest(sel().anchorNode, 'li');
+    if (li2 && li2.parentElement.classList.contains('cl')) {
+      li2.querySelectorAll('input[type=checkbox]').forEach(c => c.remove());
+      addBox(li2);
+      li2.classList.remove('done');
+      li2.querySelector('input').removeAttribute('checked');
+    }
+  }, 0);
+});
+
+/* ---- tab inserts 5 spaces instead of jumping focus away ---- */
+ed.addEventListener('keydown', e => {
+  if (e.key !== 'Tab') return;
+  e.preventDefault();
+  document.execCommand('insertText', false, '     ');
+  scheduleSave();
+});
+
+/* ---- markdown shortcuts ---- */
+ed.addEventListener('keydown', e => {
+  if (e.key !== ' ') return;
+  const s = sel();
+  const node = s.anchorNode;
+  if (!node || node.nodeType !== 3) return;
+  if (closest(node, 'li')) return;
+  const block = blockOf(node);
+  const prefix = (block ? block.innerText : node.textContent).trim();
+  if (node.textContent.slice(0, s.anchorOffset).trim() !== prefix) return;
+  const run = fn => { e.preventDefault(); clearBlock(block, node); fn(); scheduleSave(); };
+  if (prefix === '-' || prefix === '*') run(() => document.execCommand('insertUnorderedList'));
+  else if (prefix === '[]' || prefix === '[ ]') run(insertChecklist);
+  else if (prefix === '1.') run(() => document.execCommand('insertOrderedList'));
+  else if (prefix === '#') run(() => document.execCommand('formatBlock', false, 'h1'));
+  else if (prefix === '##') run(() => document.execCommand('formatBlock', false, 'h2'));
+});
+function blockOf(node) { while (node && node !== ed && node.parentNode !== ed) node = node.parentNode; return node === ed ? null : node; }
+function clearBlock(block, node) { if (block && block.nodeType === 1) block.innerHTML = '<br>'; else node.textContent = ''; }
+
+/* ---- tear-off: pull the curl to peel this page off the pad ---- */
+let peel = null;
+curl.addEventListener('mousedown', e => {
+  e.preventDefault();
+  peel = { sx: e.screenX, sy: e.screenY, phase: 'pulling', spawned: false };
+  card.classList.add('peeling');
+});
+window.addEventListener('mousemove', e => {
+  if (!peel) return;
+  const w = card.clientWidth, h = card.clientHeight;
+  if (peel.phase === 'pulling') {
+    const dx = e.screenX - peel.sx, dy = e.screenY - peel.sy;
+    const ax = Math.max(0, Math.min(w, -dx));
+    const ay = Math.max(0, Math.min(h, -dy));
+    if (!peel.spawned && (ax > 15 || ay > 15)) { peel.spawned = true; post('peel', { phase: 'reveal' }); }
+    card.style.clipPath = `polygon(0 0, 100% 0, 100% calc(100% - ${ay}px), calc(100% - ${ax}px) 100%, 0 100%)`;
+    card.style.transform = `rotate(${Math.min(6, (ax + ay) * 0.02)}deg)`;
+    peelhint.style.display = (ax > 30 || ay > 30) ? 'block' : 'none';
+    curl.style.width = curl.style.height = (56 + Math.min(ax, ay) * 0.6) + 'px';
+    if (ax > w * 0.5 && ay > h * 0.5) {
+      peel.phase = 'detached';
+      peel.sx = e.screenX; peel.sy = e.screenY;
+      peelhint.style.display = 'none';
+      curl.style.width = curl.style.height = '';
+      card.style.clipPath = 'none';
+      post('peel', { phase: 'detach' });
+    }
+  } else {
+    card.style.transform = 'rotate(-5deg)';
+    post('peel', { phase: 'move', dx: e.screenX - peel.sx, dy: e.screenY - peel.sy });
+  }
+});
+window.addEventListener('mouseup', () => {
+  if (!peel) return;
+  card.classList.remove('peeling');
+  card.classList.add('settling');
+  if (peel.phase === 'pulling') {
+    if (peel.spawned) post('peel', { phase: 'cancel' });
+    card.style.clipPath = 'none';
+    card.style.transform = '';
+    curl.style.width = curl.style.height = '';
+    peelhint.style.display = 'none';
+  } else {
+    card.style.transform = '';
+    post('peel', { phase: 'end' });
+  }
+  setTimeout(() => card.classList.remove('settling'), 300);
+  peel = null;
+});
+
+/* ---- drawing ---- */
+let penColor = '#1d1d1f', eraser = false, stroke = null;
+function sizeCanvas(minH) {
+  const w = wrap.clientWidth, h = Math.max(wrap.scrollHeight, wrap.clientHeight, minH || 0);
+  if (cv.width === Math.round(w * dpr) && cv.height === Math.round(h * dpr)) return;
+  const old = document.createElement('canvas');
+  old.width = cv.width; old.height = cv.height;
+  if (cv.width) old.getContext('2d').drawImage(cv, 0, 0);
+  cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+  cv.style.width = w + 'px'; cv.style.height = h + 'px';
+  ctx = cv.getContext('2d'); ctx.scale(dpr, dpr); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  if (old.width) ctx.drawImage(old, 0, 0, old.width / dpr, old.height / dpr);
+}
+document.getElementById('drawBtn').addEventListener('click', () => {
+  const on = document.body.classList.toggle('draw');
+  document.getElementById('drawBtn').classList.toggle('on', on);
+  if (on) sizeCanvas(); else doSave();
+});
+document.getElementById('doneBtn').addEventListener('click', () => {
+  document.body.classList.remove('draw');
+  document.getElementById('drawBtn').classList.remove('on');
+  doSave();
+});
+document.querySelectorAll('#drawbar [data-pen]').forEach(b => b.addEventListener('click', () => {
+  penColor = b.dataset.pen; eraser = false;
+  document.querySelectorAll('#drawbar .pdot2').forEach(d => d.classList.toggle('on', d === b));
+  document.getElementById('eraserBtn').classList.remove('on');
+}));
+document.getElementById('eraserBtn').addEventListener('click', () => {
+  eraser = !eraser;
+  document.getElementById('eraserBtn').classList.toggle('on', eraser);
+});
+document.getElementById('clearBtn').addEventListener('click', () => { ctx.clearRect(0, 0, cv.width, cv.height); hasInk = false; doSave(); });
+function cvPoint(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+cv.addEventListener('pointerdown', e => {
+  if (!document.body.classList.contains('draw')) return;
+  e.preventDefault(); cv.setPointerCapture(e.pointerId);
+  stroke = cvPoint(e);
+  ctx.globalCompositeOperation = eraser ? 'destination-out' : 'source-over';
+  ctx.strokeStyle = penColor; ctx.lineWidth = eraser ? 18 : 2.5;
+  ctx.beginPath(); ctx.moveTo(stroke[0], stroke[1]);
+});
+cv.addEventListener('pointermove', e => {
+  if (!stroke) return;
+  const [x, y] = cvPoint(e); ctx.lineTo(x, y); ctx.stroke();
+});
+cv.addEventListener('pointerup', () => { if (!stroke) return; stroke = null; if (!eraser) hasInk = true; scheduleSave(); });
+
+/* ---- markdown export ---- */
+function toMarkdown() {
+  let out = [];
+  ed.childNodes.forEach(n => walkBlock(n, out, ''));
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+function walkBlock(n, out, indent) {
+  if (n.nodeType === 3) { if (n.textContent.trim()) out.push(indent + n.textContent); return; }
+  if (n.nodeType !== 1) return;
+  const tag = n.tagName;
+  if (tag === 'H1') out.push('# ' + inline(n));
+  else if (tag === 'H2') out.push('## ' + inline(n));
+  else if (tag === 'UL' || tag === 'OL') {
+    const isCl = n.classList.contains('cl'); let i = 1;
+    n.querySelectorAll(':scope > li').forEach(li => {
+      if (isCl) { const done = li.querySelector(':scope > input[type=checkbox]')?.hasAttribute('checked'); out.push(indent + `- [${done ? 'x' : ' '}] ` + inline(li)); }
+      else if (tag === 'OL') out.push(indent + `${i++}. ` + inline(li));
+      else out.push(indent + '- ' + inline(li));
+    });
+  }
+  else if (tag === 'BLOCKQUOTE') out.push('> ' + inline(n));
+  else if (tag === 'BR') out.push('');
+  else out.push(indent + inline(n));
+}
+function inline(n) {
+  let s = '';
+  n.childNodes.forEach(c => {
+    if (c.nodeType === 3) s += c.textContent;
+    else if (c.nodeType === 1) {
+      if (c.tagName === 'INPUT') return;
+      if (c.tagName === 'BR') { s += '\n'; return; }
+      const inner = inline(c);
+      if (c.tagName === 'B' || c.tagName === 'STRONG') s += '**' + inner + '**';
+      else if (c.tagName === 'I' || c.tagName === 'EM') s += '*' + inner + '*';
+      else s += inner;
+    }
+  });
+  return s;
+}
+
+ed.addEventListener('input', scheduleSave);
+window.addEventListener('blur', doSave);
+window.addEventListener('resize', () => { if (document.body.classList.contains('draw')) sizeCanvas(); });
+</script>
