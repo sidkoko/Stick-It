@@ -32,7 +32,7 @@ This builds `Stick-It.app` into `build/` and launches it. Re-run `./build.sh --r
 
 Grab the zip from [Releases](../../releases), unzip it, and drag `Stick-It.app` to `/Applications`.
 
-Since this isn't notarized (that requires a paid Apple Developer account), macOS Gatekeeper will flag it as being from an unidentified developer the first time you open it. **Right-click the app → Open → confirm** (or if you double-clicked first: System Settings → Privacy & Security → **Open Anyway**). This is a one-time step per install.
+Since this isn't notarized (that requires a paid Apple Developer account), macOS will flag it as unidentified the first time you open it. This is a one-time thing — **[step-by-step guide to getting past it →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5)**
 
 ## License
 
