@@ -134,8 +134,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.loginMenuItem = loginItem
         statusItem.menu = menu
 
+        installEditMenu()
         registerHotkey()
         NoteManager.shared.restoreOpenNotes()
+    }
+
+    // This app has no visible menu bar (it's a background/accessory app), so without this,
+    // macOS has no menu claiming ⌘C/⌘V/etc. and never routes them anywhere — the WKWebView
+    // in every note already implements cut/copy/paste/select-all, it just needs something to
+    // send the key equivalent to it. Deliberately omits Undo/Redo — that's meant to do nothing.
+    private func installEditMenu() {
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu()
+        appMenuItem.submenu = appMenu
+        appMenu.addItem(NSMenuItem(title: "Quit Stick-It", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(editMenuItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenuItem.submenu = editMenu
+        editMenu.addItem(NSMenuItem(title: "Cut", action: Selector(("cut:")), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy", action: Selector(("copy:")), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste", action: Selector(("paste:")), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Select All", action: Selector(("selectAll:")), keyEquivalent: "a"))
+
+        NSApp.mainMenu = mainMenu
     }
 
     private var loginMenuItem: NSMenuItem!

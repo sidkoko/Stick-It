@@ -607,6 +607,14 @@ function inline(n) {
   return s;
 }
 
+/* ---- paste as plain text — otherwise whatever inline styling the clipboard source
+   carried (background highlights, fonts, colors) comes along for the ride ---- */
+ed.addEventListener('paste', e => {
+  e.preventDefault();
+  const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+  document.execCommand('insertText', false, text);
+});
+
 ed.addEventListener('input', scheduleSave);
 window.addEventListener('blur', doSave);
 window.addEventListener('resize', () => { if (document.body.classList.contains('draw')) sizeCanvas(); });
