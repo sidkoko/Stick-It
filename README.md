@@ -20,9 +20,9 @@ A native macOS sticky notes app, built because Apple's Stickies wasn't cutting i
 
 Grab the latest **`Stick-It.app.zip`** from [Releases](../../releases) — that's the one to pick; ignore the "Source code (zip/tar.gz)" links GitHub adds automatically, those are just the raw code, not the app.
 
-Unzip it and drag `Stick-It.app` to `/Applications`.
+Unzip it, then double-click **`Open Stick-It.command`** sitting next to the app — it installs Stick-It to Applications, clears the macOS "unidentified developer" warning, and opens it, all in one click. (This isn't notarized, since that requires a paid Apple Developer account, so macOS would otherwise flag it the first time you open it — that's all this script is for.) If that file itself shows a warning, right-click it and choose **Open** instead.
 
-Since this isn't notarized (that requires a paid Apple Developer account), macOS will flag it as unidentified the first time you open it. This is a one-time thing — **[step-by-step guide to getting past it →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5)**
+Prefer to do it manually? [Step-by-step guide →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5)
 
 ## Building from source
 
