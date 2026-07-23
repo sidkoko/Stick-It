@@ -26,6 +26,8 @@ struct BoardView: View {
     @State private var query = ""
     @State private var selectMode = false
     @State private var selected: Set<String> = []
+    @State private var updateInfo: UpdateChecker.ReleaseInfo?
+    @AppStorage("dismissedUpdateVersion") private var dismissedVersion = ""
 
     private var filtered: [Note] {
         query.isEmpty ? notes
@@ -37,6 +39,9 @@ struct BoardView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let info = updateInfo, info.version != dismissedVersion {
+                UpdateBanner(info: info) { dismissedVersion = info.version }
+            }
             HStack {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
                 TextField("Search notes…", text: $query)
@@ -101,6 +106,11 @@ struct BoardView: View {
         .onReceive(NotificationCenter.default.publisher(for: .notesChanged)) { _ in
             notes = NoteStore.shared.all
         }
+        .task {
+            guard let latest = await UpdateChecker.fetchLatest(),
+                  UpdateChecker.isNewer(latest.version, than: UpdateChecker.currentVersion) else { return }
+            updateInfo = latest
+        }
     }
 
     private func confirmBatchDelete() {
@@ -115,6 +125,30 @@ struct BoardView: View {
             selected.removeAll()
             selectMode = false
         }
+    }
+}
+
+struct UpdateBanner: View {
+    let info: UpdateChecker.ReleaseInfo
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text("Stick-It \(info.version) is available")
+                .font(.system(size: 12, weight: .medium))
+            Spacer()
+            Button("View") { NSWorkspace.shared.open(info.url) }
+                .font(.system(size: 12))
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.12))
     }
 }
 
