@@ -16,6 +16,14 @@ A native macOS sticky notes app, built because Apple's Stickies wasn't cutting i
 - **Autosave** — everything, always, including window position — no save button, nothing lost on quit/restart
 - **Launch at Login**
 
+## Download
+
+Grab the latest **`Stick-It.app.zip`** from [Releases](../../releases) — that's the one to pick; ignore the "Source code (zip/tar.gz)" links GitHub adds automatically, those are just the raw code, not the app.
+
+Unzip it and drag `Stick-It.app` to `/Applications`.
+
+Since this isn't notarized (that requires a paid Apple Developer account), macOS will flag it as unidentified the first time you open it. This is a one-time thing — **[step-by-step guide to getting past it →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5)**
+
 ## Building from source
 
 Requires macOS 14+ and Swift 5.9+ (ships with Xcode / Command Line Tools).
@@ -27,12 +35,6 @@ cd Stick-It
 ```
 
 This builds `Stick-It.app` into `build/` and launches it. Re-run `./build.sh --run` any time to rebuild.
-
-## Installing a release build
-
-Grab the zip from [Releases](../../releases), unzip it, and drag `Stick-It.app` to `/Applications`.
-
-Since this isn't notarized (that requires a paid Apple Developer account), macOS will flag it as unidentified the first time you open it. This is a one-time thing — **[step-by-step guide to getting past it →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5)**
 
 ## License
 
