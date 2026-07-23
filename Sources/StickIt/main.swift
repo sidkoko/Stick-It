@@ -116,7 +116,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        statusItem.button?.image = NSImage(systemSymbolName: "note.text", accessibilityDescription: "Stick-It")
+        if let icon = NSImage(systemSymbolName: "note.text", accessibilityDescription: "Stick-It") {
+            statusItem.button?.image = icon
+        } else {
+            // guarantees something visible shows up even if the SF Symbol fails to resolve
+            statusItem.button?.title = "📝"
+        }
 
         let menu = NSMenu()
         let newItem = NSMenuItem(title: "New Note", action: #selector(newNote), keyEquivalent: "n")
@@ -199,8 +204,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return noErr
         }, 1, &eventType, nil, nil)
         let hotKeyID = EventHotKeyID(signature: OSType(0x53544B49), id: 1) // "STKI"
-        RegisterEventHotKey(UInt32(kVK_ANSI_N), UInt32(cmdKey | optionKey),
-                            hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+
+        // ⌥⌘N first; if something else already owns that combo, fall back to ⌃⌥⌘N
+        // rather than silently doing nothing forever.
+        var status = RegisterEventHotKey(UInt32(kVK_ANSI_N), UInt32(cmdKey | optionKey),
+                                         hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        if status != noErr {
+            status = RegisterEventHotKey(UInt32(kVK_ANSI_N), UInt32(cmdKey | optionKey | controlKey),
+                                         hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
+        }
+        if status != noErr {
+            NSLog("Stick-It: could not register a global hotkey (status \(status)) — New Note is still available from the menu bar.")
+        }
     }
 }
 

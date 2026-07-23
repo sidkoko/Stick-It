@@ -18,11 +18,13 @@ A native macOS sticky notes app, built because Apple's Stickies wasn't cutting i
 
 ## Download
 
-Grab the latest **`Stick-It.app.zip`** from [Releases](../../releases) — that's the one to pick; ignore the "Source code (zip/tar.gz)" links GitHub adds automatically, those are just the raw code, not the app.
+1. Grab **`Stick-It.app.zip`** from [Releases](../../releases). Ignore the "Source code (zip)" / "Source code (tar.gz)" links below it — those are just raw code, not the app.
+2. Unzip it, then drag `Stick-It.app` into your **Applications** folder.
+3. Open it. macOS will block it and say it can't verify the developer — that's expected, this app isn't in the App Store (yet). Click **Done**.
+4. Go to **System Settings → Privacy & Security**, then scroll all the way to the bottom.
+5. You'll see: *"Stick-It" was blocked to protect your Mac.* Click **Open Anyway**, then confirm with your password or Touch ID.
 
-Unzip it, then double-click **`Open Stick-It.command`** sitting next to the app — it installs Stick-It to Applications, clears the macOS "unidentified developer" warning, and opens it, all in one click. (This isn't notarized, since that requires a paid Apple Developer account, so macOS would otherwise flag it the first time you open it — that's all this script is for.) If that file itself shows a warning, right-click it and choose **Open** instead.
-
-Prefer to do it manually? [Step-by-step guide →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5)
+That's it — Stick-It opens, and every launch after this is instant, no more warnings. ([Same steps, as a webpage →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5))
 
 ## Building from source
 

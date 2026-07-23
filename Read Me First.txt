@@ -1,24 +1,25 @@
 Stick-It — Read This First
 ===========================
 
-EASIEST WAY TO OPEN IT:
+HOW TO OPEN STICK-IT (one-time thing, then never again)
 
-    Double-click "Open Stick-It.command" in this folder.
+1. Drag Stick-It.app into your Applications folder.
 
-That one click installs it to Applications, clears the macOS security
-warning, and opens it. If macOS still shows a warning on that file
-itself, right-click it instead and choose Open.
+2. Double-click it to open.
 
----
+3. macOS will block it and say it can't verify the developer.
+   This is expected — click Done.
 
-Prefer to do it yourself?
+4. Open System Settings, then go to Privacy & Security.
 
-1. Drag Stick-It.app to Applications.
-2. Paste this into Terminal, press Return:
-       xattr -cr "/Applications/Stick-It.app"
-3. Open Stick-It normally.
+5. Scroll all the way to the bottom of that page.
 
-Or the full click-by-click guide (System Settings steps, screenshots-free):
+6. You'll see a line: "Stick-It" was blocked to protect your Mac.
+   Click Open Anyway next to it, then confirm with your
+   password or Touch ID.
+
+Stick-It will open. Every time after this, it opens normally —
+no more warnings, no more steps.
+
+Full guide with the same steps:
 https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5
-
-Either way, this only happens once — every time after, it opens instantly.

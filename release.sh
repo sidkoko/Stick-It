@@ -12,8 +12,6 @@ rm -rf "$STAGE" build/Stick-It.app.zip
 mkdir -p "$STAGE/Stick-It"
 cp -R build/Stick-It.app "$STAGE/Stick-It/"
 cp "Read Me First.txt" "$STAGE/Stick-It/"
-cp "Open Stick-It.command" "$STAGE/Stick-It/"
-chmod +x "$STAGE/Stick-It/Open Stick-It.command"
 ditto -c -k --sequesterRsrc --keepParent "$STAGE/Stick-It" build/Stick-It.app.zip
 rm -rf "$STAGE"
 

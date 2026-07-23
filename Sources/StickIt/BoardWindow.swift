@@ -45,6 +45,13 @@ struct BoardView: View {
                     Text("\(selected.count) selected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Button(selected.count == filtered.count ? "Deselect All" : "Select All") {
+                        if selected.count == filtered.count {
+                            selected.removeAll()
+                        } else {
+                            selected = Set(filtered.map(\.id))
+                        }
+                    }
                     Button(role: .destructive) { confirmBatchDelete() } label: {
                         Label("Delete", systemImage: "trash")
                     }
