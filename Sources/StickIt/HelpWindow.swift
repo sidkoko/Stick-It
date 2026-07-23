@@ -14,7 +14,7 @@ final class HelpWindow {
             w.isReleasedWhenClosed = false
             w.center()
             let webView = WKWebView(frame: .zero)
-            if let url = Bundle.module.url(forResource: "help", withExtension: "html", subdirectory: "Resources") {
+            if let url = Bundle.main.url(forResource: "help", withExtension: "html") {
                 webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
             }
             w.contentView = webView

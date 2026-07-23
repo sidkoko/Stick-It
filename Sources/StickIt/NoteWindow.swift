@@ -54,7 +54,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
         webView.navigationDelegate = navDelegate
         content.addSubview(webView)
 
-        if let url = Bundle.module.url(forResource: "editor", withExtension: "html", subdirectory: "Resources") {
+        if let url = Bundle.main.url(forResource: "editor", withExtension: "html") {
             webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
     }
