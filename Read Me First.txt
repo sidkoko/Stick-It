@@ -1,17 +1,24 @@
 Stick-It — Read This First
 ===========================
 
-If macOS shows a warning when you open Stick-It saying it can't verify
-the developer, that's expected — this app isn't in the App Store (yet),
-so your Mac double-checks the first time.
+EASIEST WAY TO OPEN IT:
 
-FASTEST FIX — paste this into Terminal, then press Return:
+    Double-click "Open Stick-It.command" in this folder.
 
-    xattr -cr "/Applications/Stick-It.app"
+That one click installs it to Applications, clears the macOS security
+warning, and opens it. If macOS still shows a warning on that file
+itself, right-click it instead and choose Open.
 
-Then open Stick-It normally.
+---
 
-Prefer not to use Terminal? Full click-by-click steps here:
+Prefer to do it yourself?
+
+1. Drag Stick-It.app to Applications.
+2. Paste this into Terminal, press Return:
+       xattr -cr "/Applications/Stick-It.app"
+3. Open Stick-It normally.
+
+Or the full click-by-click guide (System Settings steps, screenshots-free):
 https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5
 
 Either way, this only happens once — every time after, it opens instantly.
