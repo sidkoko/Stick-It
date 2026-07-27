@@ -76,6 +76,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
             "name": note.name ?? "",
             "pinned": note.pinned,
             "collapsed": note.collapsed,
+            "images": (note.images ?? []).map { ["id": $0.id, "src": $0.src, "x": $0.x, "y": $0.y, "w": $0.w, "h": $0.h] },
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -100,6 +101,14 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
         note.text = body["text"] as? String ?? note.text
         note.md = body["md"] as? String ?? note.md
         if let d = body["drawing"] as? String { note.drawing = d.isEmpty ? nil : d }
+        if let imgs = body["images"] as? [[String: Any]] {
+            note.images = imgs.compactMap { d in
+                guard let id = d["id"] as? String, let src = d["src"] as? String else { return nil }
+                return NoteImage(id: id, src: src,
+                                  x: d["x"] as? Double ?? 20, y: d["y"] as? Double ?? 20,
+                                  w: d["w"] as? Double ?? 200, h: d["h"] as? Double ?? 150)
+            }
+        }
         note.updatedAt = Date()
         NoteStore.shared.save(note)
     }

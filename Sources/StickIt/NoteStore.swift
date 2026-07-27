@@ -1,5 +1,11 @@
 import AppKit
 
+struct NoteImage: Codable {
+    var id: String = UUID().uuidString
+    var src: String = ""    // data URL
+    var x: Double = 20, y: Double = 20, w: Double = 200, h: Double = 150
+}
+
 struct Note: Codable {
     var id: String = UUID().uuidString
     var name: String?
@@ -8,6 +14,10 @@ struct Note: Codable {
     var html: String = ""
     var text: String = ""
     var md: String = ""
+    // optional (not `= []`): a plain default is ignored by synthesized Decodable for a
+    // missing key, so existing notes saved before this field existed would fail to decode
+    // entirely and vanish from the store. Optional decodes a missing key as nil for free.
+    var images: [NoteImage]?
     var color: String = "yellow"
     var x: Double = 0, y: Double = 0, w: Double = 300, h: Double = 280
     var pinned: Bool = true

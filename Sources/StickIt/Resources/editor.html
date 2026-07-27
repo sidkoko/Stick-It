@@ -108,7 +108,42 @@
   #editor ul.cl li.done { text-decoration: line-through; opacity: .5; }
   #editor blockquote { margin: .3em 0; padding-left: .8em; border-left: 3px solid rgba(0,0,0,.25); }
 
+  #editor.dragging-image { outline: 2px dashed rgba(0,0,0,.25); outline-offset: -4px; }
+
   #cv { position: absolute; left: 0; top: 0; z-index: 3; pointer-events: none; }
+
+  /* dropped/pasted images: a floating layer above the text, not part of it —
+     free to drag anywhere and resize from any edge or corner, same idea as
+     the window's own resize handles. Never part of contenteditable, so it
+     can't ever interfere with the caret or typing. */
+  #imgLayer { position: absolute; left: 0; top: 0; right: 0; z-index: 4; pointer-events: none; }
+  .img-float {
+    position: absolute; pointer-events: auto; cursor: move; border-radius: 4px;
+  }
+  .img-float img {
+    width: 100%; height: 100%; display: block; border-radius: 4px;
+    -webkit-user-drag: none; pointer-events: none;
+  }
+  .img-float .rzh {
+    position: absolute; width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255,255,255,.92); border: 1.5px solid rgba(0,0,0,.4);
+    opacity: 0; transition: opacity .12s; z-index: 2;
+  }
+  .img-float:hover .rzh, .img-float:hover .img-del { opacity: 1; }
+  .rzh-n  { top: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }
+  .rzh-s  { bottom: -5px; left: 50%; margin-left: -5px; cursor: ns-resize; }
+  .rzh-e  { right: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+  .rzh-w  { left: -5px; top: 50%; margin-top: -5px; cursor: ew-resize; }
+  .rzh-nw { top: -5px; left: -5px; cursor: nwse-resize; }
+  .rzh-ne { top: -5px; right: -5px; cursor: nesw-resize; }
+  .rzh-sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+  .rzh-se { bottom: -5px; right: -5px; cursor: nwse-resize; }
+  .img-float .img-del {
+    position: absolute; top: -8px; left: -8px; width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(0,0,0,.65); color: #fff; border: none; font-size: 10px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+    opacity: 0; transition: opacity .12s; z-index: 3; padding: 0;
+  }
   body.draw #cv { pointer-events: auto; cursor: crosshair; }
   body.draw #editor { -webkit-user-select: none; }
 
@@ -231,6 +266,7 @@
   <div id="wrap">
     <div id="editor" contenteditable="true" spellcheck="true" autocorrect="on" autocapitalize="on"></div>
     <canvas id="cv"></canvas>
+    <div id="imgLayer"></div>
   </div>
 
   <div id="foldband"></div>
@@ -266,19 +302,26 @@ const peelhint = document.getElementById('peelhint');
 const nameInput = document.getElementById('nameInput');
 const nameLabel = document.getElementById('nameLabel');
 const pinBtn = document.getElementById('pinBtn');
+const imgLayer = document.getElementById('imgLayer');
 const dpr = window.devicePixelRatio || 1;
 let ctx = cv.getContext('2d');
 let saveTimer, hasInk = false;
+let images = []; // { id, src, x, y, w, h }
 
 function post(name, body) { try { webkit.messageHandlers[name].postMessage(body || {}); } catch (e) {} }
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(doSave, 350); }
 function doSave() {
-  post('save', { html: ed.innerHTML, text: ed.innerText, md: toMarkdown(), drawing: hasInk ? cv.toDataURL('image/png') : '' });
+  post('save', { html: ed.innerHTML, text: ed.innerText, md: toMarkdown(),
+                 drawing: hasInk ? cv.toDataURL('image/png') : '', images });
 }
 
 /* ---- called from Swift ---- */
 function setNote(n) {
   ed.innerHTML = n.html || '';
+  imgLayer.innerHTML = '';
+  images = (n.images || []).map(r => ({ ...r }));
+  images.forEach(createImageEl);
+  syncImgLayerHeight();
   setColor(n.hex);
   setPaper(n.paper || 'plain');
   setPinned(!!n.pinned);
@@ -375,10 +418,20 @@ document.getElementById('size').addEventListener('change', e => { cmd('fontSize'
 document.getElementById('checklistBtn').addEventListener('click', e => { e.preventDefault(); insertChecklist(); });
 document.getElementById('toolbar').addEventListener('mousedown', e => { if (e.target.tagName !== 'SELECT') e.preventDefault(); });
 
+/* ---- show which of Bold/Italic/Underline are active right where the caret is ---- */
+const toggleBtns = Array.from(document.querySelectorAll('#toolbar [data-cmd]'))
+  .filter(b => ['bold', 'italic', 'underline'].includes(b.dataset.cmd));
+function updateToolbarState() {
+  toggleBtns.forEach(b => b.classList.toggle('on', document.queryCommandState(b.dataset.cmd)));
+}
+
 let savedRange = null;
 document.addEventListener('selectionchange', () => {
   const s = getSelection();
-  if (s.rangeCount && ed.contains(s.anchorNode)) savedRange = s.getRangeAt(0).cloneRange();
+  if (s.rangeCount && ed.contains(s.anchorNode)) {
+    savedRange = s.getRangeAt(0).cloneRange();
+    updateToolbarState();
+  }
 });
 function cmd(name, value) {
   ed.focus();
@@ -391,6 +444,7 @@ function cmd(name, value) {
     document.execCommand(name, false, value || null);
   }
   scheduleSave();
+  updateToolbarState();
 }
 
 /* ---- checklist ---- */
@@ -607,15 +661,280 @@ function inline(n) {
   return s;
 }
 
-/* ---- paste as plain text — otherwise whatever inline styling the clipboard source
-   carried (background highlights, fonts, colors) comes along for the ride ---- */
-ed.addEventListener('paste', e => {
+/* ---- images: drop a screenshot (or any image file) anywhere on the note,
+   or paste one straight from the clipboard. Each one floats freely above
+   the text — drag it anywhere, resize from any edge or corner — and is
+   never part of contenteditable, so it can't break typing or the caret. ---- */
+function mimeFor(name) {
+  const ext = (name || '').split('.').pop().toLowerCase();
+  return ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+            webp: 'image/webp', bmp: 'image/bmp', tif: 'image/tiff', tiff: 'image/tiff',
+            heic: 'image/heic', heif: 'image/heif' })[ext] || 'image/png';
+}
+function isImageFile(file) {
+  if (file.type && file.type.startsWith('image/')) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|tiff?|heic|heif)$/i.test(file.name || '');
+}
+function readImageFile(file) {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      let url = reader.result;
+      if (url.startsWith('data:;base64,')) url = url.replace('data:;base64,', `data:${mimeFor(file.name)};base64,`);
+      resolve(url);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function loadImageEl(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image failed to decode'));
+    img.src = url;
+  });
+}
+// screenshots (especially Retina ones) can be several MB — shrink anything
+// beyond a sensible display size before it goes into the note's saved JSON
+async function shrinkImage(rawUrl, maxDim) {
+  const img = await loadImageEl(rawUrl);
+  const scale = Math.min(1, maxDim / Math.max(img.naturalWidth, img.naturalHeight));
+  if (scale >= 1) return { url: rawUrl, w: img.naturalWidth, h: img.naturalHeight };
+  const w = Math.round(img.naturalWidth * scale), h = Math.round(img.naturalHeight * scale);
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(img, 0, 0, w, h);
+  return { url: c.toDataURL('image/png'), w, h };
+}
+function newId() { return 'img' + Date.now() + Math.random().toString(36).slice(2); }
+function syncImgLayerHeight() {
+  const tallest = images.reduce((m, r) => Math.max(m, r.y + r.h), 0);
+  imgLayer.style.height = Math.max(wrap.scrollHeight, wrap.clientHeight, ed.scrollHeight, tallest + 20) + 'px';
+}
+function wrapPoint(clientX, clientY) {
+  const r = wrap.getBoundingClientRect();
+  return { x: clientX - r.left + wrap.scrollLeft, y: clientY - r.top + wrap.scrollTop };
+}
+function centerPoint() {
+  return { x: wrap.scrollLeft + wrap.clientWidth / 2, y: wrap.scrollTop + wrap.clientHeight / 2 };
+}
+// the note's own bottom-right corner is reserved for the tear-off curl (see
+// #rzE/#rzS, which stop 56px short of that corner for the same reason) —
+// a dragged/resized photo shouldn't be able to rest on top of it either
+function curlZone() {
+  const size = 56;
+  return { left: wrap.scrollLeft + wrap.clientWidth - size, top: wrap.scrollTop + wrap.clientHeight - size };
+}
+
+function createImageEl(rec) {
+  const el = document.createElement('div');
+  el.className = 'img-float';
+  el.style.left = rec.x + 'px'; el.style.top = rec.y + 'px';
+  el.style.width = rec.w + 'px'; el.style.height = rec.h + 'px';
+  const img = document.createElement('img');
+  img.draggable = false;
+  img.src = rec.src;
+  el.appendChild(img);
+
+  ['n', 's', 'e', 'w', 'nw', 'ne', 'sw', 'se'].forEach(dir => {
+    const h = document.createElement('div');
+    h.className = 'rzh rzh-' + dir;
+    el.appendChild(h);
+    wireImageResize(el, h, dir, rec);
+  });
+
+  const del = document.createElement('button');
+  del.className = 'img-del';
+  del.textContent = '✕';
+  del.title = 'Remove image';
+  del.addEventListener('mousedown', e => e.stopPropagation());
+  del.addEventListener('click', e => {
+    e.stopPropagation();
+    el.remove();
+    images = images.filter(r => r.id !== rec.id);
+    scheduleSave();
+  });
+  el.appendChild(del);
+
+  wireImageDrag(el, rec);
+  imgLayer.appendChild(el);
+  return el;
+}
+
+function wireImageDrag(el, rec) {
+  el.addEventListener('mousedown', e => {
+    if (e.target !== el && e.target.tagName !== 'IMG') return;
+    e.preventDefault();
+    const startX = e.clientX, startY = e.clientY;
+    const start = { x: rec.x, y: rec.y };
+    const move = ev => {
+      let x = Math.max(0, start.x + (ev.clientX - startX));
+      let y = Math.max(0, start.y + (ev.clientY - startY));
+      const z = curlZone();
+      if (x + rec.w > z.left && y + rec.h > z.top) {
+        // would land on the curl's corner — push out along whichever axis moves it less
+        const pushX = Math.max(0, z.left - rec.w), pushY = Math.max(0, z.top - rec.h);
+        if (Math.abs(x - pushX) <= Math.abs(y - pushY)) x = pushX; else y = pushY;
+      }
+      rec.x = x; rec.y = y;
+      el.style.left = x + 'px'; el.style.top = y + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      syncImgLayerHeight(); scheduleSave();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+}
+function wireImageResize(el, handle, dir, rec) {
+  handle.addEventListener('mousedown', e => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX, startY = e.clientY;
+    const start = { x: rec.x, y: rec.y, w: rec.w, h: rec.h };
+    const minSize = 30;
+    const move = ev => {
+      const dx = ev.clientX - startX, dy = ev.clientY - startY;
+      let { x, y, w, h } = start;
+      if (dir.includes('e')) w = Math.max(minSize, start.w + dx);
+      if (dir.includes('s')) h = Math.max(minSize, start.h + dy);
+      // 'w'/'n' grow by moving the left/top edge outward, which can push x/y past the
+      // note's own top-left corner — clamp there too, same as dragging already does
+      if (dir.includes('w')) {
+        w = Math.max(minSize, start.w - dx); x = start.x + start.w - w;
+        if (x < 0) { x = 0; w = start.x + start.w; }
+      }
+      if (dir.includes('n')) {
+        h = Math.max(minSize, start.h - dy); y = start.y + start.h - h;
+        if (y < 0) { y = 0; h = start.y + start.h; }
+      }
+      // growing toward the bottom-right corner can't push into the curl's reserved zone
+      // (growing left/up only moves away from that corner, so only e/s need capping)
+      const z = curlZone();
+      if (dir.includes('e') && y + h > z.top) w = Math.max(minSize, Math.min(w, z.left - x));
+      if (dir.includes('s') && x + w > z.left) h = Math.max(minSize, Math.min(h, z.top - y));
+      rec.x = x; rec.y = y; rec.w = w; rec.h = h;
+      el.style.left = x + 'px'; el.style.top = y + 'px'; el.style.width = w + 'px'; el.style.height = h + 'px';
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+      syncImgLayerHeight(); scheduleSave();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+}
+
+async function insertImageFile(file, point) {
+  const raw = await readImageFile(file);
+  let url, naturalW, naturalH;
+  try {
+    ({ url, w: naturalW, h: naturalH } = await shrinkImage(raw, 1600));
+  } catch (err) {
+    return; // not a real/decodable image (corrupt file, unsupported format) — no-op
+  }
+  const maxW = Math.max(60, wrap.clientWidth - 28);
+  const dispW = Math.min(naturalW, maxW, 320);
+  const dispH = Math.round(naturalH * (dispW / naturalW));
+  const rec = {
+    id: newId(), src: url,
+    x: Math.max(4, Math.round(point.x - dispW / 2)),
+    y: Math.max(4, Math.round(point.y - dispH / 2)),
+    w: dispW, h: dispH,
+  };
+  images.push(rec);
+  createImageEl(rec);
+  syncImgLayerHeight();
+  scheduleSave();
+}
+
+wrap.addEventListener('dragover', e => {
+  if (Array.from(e.dataTransfer.types || []).includes('Files')) {
+    e.preventDefault();
+    ed.classList.add('dragging-image');
+  }
+});
+wrap.addEventListener('dragleave', () => ed.classList.remove('dragging-image'));
+wrap.addEventListener('drop', e => {
+  ed.classList.remove('dragging-image');
+  const files = Array.from(e.dataTransfer.files || []).filter(isImageFile);
+  if (!files.length) return;
   e.preventDefault();
-  const text = (e.clipboardData || window.clipboardData).getData('text/plain');
-  document.execCommand('insertText', false, text);
+  const base = wrapPoint(e.clientX, e.clientY);
+  files.forEach((file, i) => insertImageFile(file, { x: base.x + i * 24, y: base.y + i * 24 }));
 });
 
-ed.addEventListener('input', scheduleSave);
+/* ---- paste: keep bold/italic/underline, strip everything else —
+   backgrounds, fonts, colors, sizes — none of that should come along for
+   the ride. Sources like Notes/Docs/browsers usually carry these as inline
+   styles on a <span> rather than real <b>/<i>/<u> tags, so both are checked. ---- */
+function isBold(el) {
+  if (['B', 'STRONG'].includes(el.tagName)) return true;
+  const w = el.style && el.style.fontWeight;
+  return w === 'bold' || parseInt(w) >= 600;
+}
+function isItalic(el) {
+  if (['I', 'EM'].includes(el.tagName)) return true;
+  return el.style && el.style.fontStyle === 'italic';
+}
+function isUnderline(el) {
+  if (el.tagName === 'U') return true;
+  const d = el.style && (el.style.textDecorationLine || el.style.textDecoration);
+  return !!d && d.includes('underline');
+}
+// never re-wrap formatting the caret already has active — it's inherited either
+// way, and a redundant nested <b> inside an ambient <b> is how pasted bold text
+// ends up rendering heavier than either the source or a normal bold word
+function wrapFormat(node, fmt, ambient) {
+  if (fmt.underline && !ambient.underline) { const u = document.createElement('u'); u.appendChild(node); node = u; }
+  if (fmt.italic && !ambient.italic) { const i = document.createElement('i'); i.appendChild(node); node = i; }
+  if (fmt.bold && !ambient.bold) { const b = document.createElement('b'); b.appendChild(node); node = b; }
+  return node;
+}
+function walkPaste(src, out, fmt, ambient) {
+  src.childNodes.forEach(child => {
+    if (child.nodeType === 3) {
+      if (child.textContent) out.appendChild(wrapFormat(document.createTextNode(child.textContent), fmt, ambient));
+      return;
+    }
+    if (child.nodeType !== 1) return;
+    const tag = child.tagName;
+    if (tag === 'SCRIPT' || tag === 'STYLE') return;
+    if (tag === 'BR') { out.appendChild(document.createElement('br')); return; }
+    if ((tag === 'DIV' || tag === 'P' || tag === 'LI') && out.lastChild) out.appendChild(document.createElement('br'));
+    walkPaste(child, out, { bold: fmt.bold || isBold(child), italic: fmt.italic || isItalic(child), underline: fmt.underline || isUnderline(child) }, ambient);
+  });
+}
+function sanitizePaste(html, ambient) {
+  const src = document.createElement('div');
+  src.innerHTML = html;
+  const out = document.createElement('div');
+  walkPaste(src, out, { bold: false, italic: false, underline: false }, ambient);
+  return out.innerHTML;
+}
+ed.addEventListener('paste', e => {
+  e.preventDefault();
+  const cd = e.clipboardData || window.clipboardData;
+  const items = cd.items ? Array.from(cd.items) : [];
+  const imageItem = items.find(it => it.kind === 'file' && it.type.startsWith('image/'));
+  if (imageItem) {
+    insertImageFile(imageItem.getAsFile(), centerPoint());
+    return;
+  }
+  const html = cd.getData('text/html');
+  if (html) {
+    const ambient = {
+      bold: document.queryCommandState('bold'),
+      italic: document.queryCommandState('italic'),
+      underline: document.queryCommandState('underline'),
+    };
+    document.execCommand('insertHTML', false, sanitizePaste(html, ambient));
+  } else {
+    document.execCommand('insertText', false, cd.getData('text/plain'));
+  }
+});
+
+ed.addEventListener('input', () => { scheduleSave(); syncImgLayerHeight(); });
 window.addEventListener('blur', doSave);
-window.addEventListener('resize', () => { if (document.body.classList.contains('draw')) sizeCanvas(); });
+window.addEventListener('resize', () => { if (document.body.classList.contains('draw')) sizeCanvas(); syncImgLayerHeight(); });
 </script>
