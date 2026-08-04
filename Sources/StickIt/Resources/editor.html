@@ -308,7 +308,10 @@ let ctx = cv.getContext('2d');
 let saveTimer, hasInk = false;
 let images = []; // { id, src, x, y, w, h }
 
-function post(name, body) { try { webkit.messageHandlers[name].postMessage(body || {}); } catch (e) {} }
+function post(name, body) {
+  if (window.__TAURI__) { window.__TAURI__.core.invoke(name, body || {}).catch(() => {}); return; }
+  try { webkit.messageHandlers[name].postMessage(body || {}); } catch (e) {}
+}
 function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(doSave, 350); }
 function doSave() {
   post('save', { html: ed.innerHTML, text: ed.innerText, md: toMarkdown(),

@@ -1,0 +1,262 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>All Notes</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #f4f2ee; overflow: hidden; }
+  body { font: 13px/1.5 -apple-system, "Segoe UI", sans-serif; color: rgba(0,0,0,.85); display: flex; flex-direction: column; }
+
+  #updateBanner {
+    display: none; align-items: center; gap: 10px; padding: 8px 14px;
+    background: rgba(90,130,220,.14); font-size: 12px;
+  }
+  #updateBanner.show { display: flex; }
+  #updateBanner .spacer { flex: 1; }
+  #updateBanner a { color: inherit; font-weight: 600; }
+  #updateBanner button { border: none; background: transparent; cursor: pointer; font-size: 13px; color: rgba(0,0,0,.5); }
+
+  #bar { display: flex; align-items: center; gap: 8px; padding: 12px; border-bottom: 1px solid rgba(0,0,0,.08); }
+  #bar input[type="search"] {
+    flex: 1; border: none; background: rgba(0,0,0,.045); border-radius: 6px;
+    padding: 6px 10px; font-size: 13px; outline: none;
+  }
+  #bar button {
+    border: none; background: rgba(0,0,0,.06); border-radius: 6px; padding: 6px 10px;
+    font: inherit; cursor: pointer; white-space: nowrap;
+  }
+  #bar button:hover { background: rgba(0,0,0,.1); }
+  #bar button.danger { background: rgba(200,50,50,.14); color: #a02020; }
+  #bar button.danger:hover { background: rgba(200,50,50,.22); }
+  #bar button:disabled { opacity: .4; cursor: default; }
+  #selCount { font-size: 12px; color: rgba(0,0,0,.5); white-space: nowrap; }
+
+  #grid { flex: 1; overflow-y: auto; padding: 14px; }
+  #cards {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 14px;
+  }
+  #empty { text-align: center; color: rgba(0,0,0,.4); margin-top: 60px; }
+
+  .card {
+    position: relative; border-radius: 10px; padding: 10px; cursor: pointer;
+    box-shadow: 0 1px 3px rgba(0,0,0,.15); min-height: 120px; display: flex; flex-direction: column;
+  }
+  .card.selected { outline: 2px solid #4a7fd6; }
+  .card .top { display: flex; align-items: flex-start; gap: 6px; }
+  .card .title { font-size: 13px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .pin { font-size: 10px; opacity: .7; }
+  .card .snippet {
+    font-size: 11px; opacity: .65; margin-top: 6px; flex: 1;
+    display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .card .bottom { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 10px; opacity: .45; }
+  .card .bottom .spacer { flex: 1; }
+  .card .bottom button {
+    border: none; background: transparent; cursor: pointer; opacity: .55; font-size: 12px; padding: 2px;
+  }
+  .card .bottom button:hover { opacity: 1; }
+  .card .checkbox { font-size: 14px; }
+</style>
+</head>
+<body>
+  <div id="updateBanner">
+    <span>Stick-It <span id="updateVersion"></span> is available</span>
+    <span class="spacer"></span>
+    <a id="updateLink" href="#" target="_blank">View</a>
+    <button id="updateDismiss">✕</button>
+  </div>
+
+  <div id="bar">
+    <input id="search" type="search" placeholder="Search notes…">
+    <span id="selCount" style="display:none"></span>
+    <button id="selectAllBtn" style="display:none">Select All</button>
+    <button id="deleteBtn" class="danger" style="display:none">Delete</button>
+    <button id="cancelBtn" style="display:none">Cancel</button>
+    <button id="selectBtn">Select</button>
+    <button id="newNoteBtn">New Note</button>
+    <button id="helpBtn">Help</button>
+  </div>
+
+  <div id="grid">
+    <div id="empty" style="display:none"></div>
+    <div id="cards"></div>
+  </div>
+
+<script>
+const invoke = (name, args) => window.__TAURI__.core.invoke(name, args || {});
+
+const COLOR_HEX = { yellow: '#FFF3A3', pink: '#FFD1E3', blue: '#C9E8FF', green: '#D5F2C2', orange: '#FFDDB0', purple: '#E6D9FF' };
+
+let notes = [];
+let query = '';
+let selectMode = false;
+let selected = new Set();
+
+const cardsEl = document.getElementById('cards');
+const emptyEl = document.getElementById('empty');
+const searchEl = document.getElementById('search');
+
+function relativeTime(secs) {
+  const diff = Date.now() / 1000 - secs;
+  const mins = Math.round(diff / 60);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  const days = Math.round(hrs / 24);
+  return days + 'd ago';
+}
+
+function snippetFor(note) {
+  const lines = (note.text || '').split('\n').filter(l => l.trim().length > 0);
+  return lines.slice(1).join('\n') || lines[0] || '';
+}
+
+function titleFor(note) {
+  if (note.name && note.name.trim()) return note.name;
+  const line = (note.text || '').split('\n').map(l => l.trim()).find(l => l.length > 0);
+  return (line || 'New Note').slice(0, 48);
+}
+
+function filtered() {
+  if (!query) return notes;
+  const q = query.toLowerCase();
+  return notes.filter(n => (n.text || '').toLowerCase().includes(q) || titleFor(n).toLowerCase().includes(q));
+}
+
+function render() {
+  const list = filtered();
+  emptyEl.style.display = list.length ? 'none' : 'block';
+  emptyEl.textContent = query ? `No notes match "${query}"` : 'No notes yet — make one!';
+  cardsEl.innerHTML = '';
+  for (const note of list) {
+    const card = document.createElement('div');
+    card.className = 'card' + (selected.has(note.id) ? ' selected' : '');
+    card.style.background = COLOR_HEX[note.color] || COLOR_HEX.yellow;
+
+    const top = document.createElement('div');
+    top.className = 'top';
+    if (selectMode) {
+      const cb = document.createElement('span');
+      cb.className = 'checkbox';
+      cb.textContent = selected.has(note.id) ? '☑' : '☐';
+      top.appendChild(cb);
+    }
+    const title = document.createElement('div');
+    title.className = 'title';
+    title.textContent = titleFor(note);
+    top.appendChild(title);
+    if (note.pinned) {
+      const pin = document.createElement('span');
+      pin.className = 'pin';
+      pin.textContent = '📌';
+      top.appendChild(pin);
+    }
+    card.appendChild(top);
+
+    const snippet = document.createElement('div');
+    snippet.className = 'snippet';
+    snippet.textContent = snippetFor(note);
+    card.appendChild(snippet);
+
+    const bottom = document.createElement('div');
+    bottom.className = 'bottom';
+    const time = document.createElement('span');
+    time.textContent = relativeTime(note.updatedAt);
+    bottom.appendChild(time);
+    const spacer = document.createElement('span');
+    spacer.className = 'spacer';
+    bottom.appendChild(spacer);
+    if (!selectMode) {
+      const openBtn = document.createElement('button');
+      openBtn.textContent = '↗';
+      openBtn.title = 'Open this note';
+      openBtn.onclick = e => { e.stopPropagation(); invoke('open_note', { id: note.id }); };
+      bottom.appendChild(openBtn);
+
+      const copyBtn = document.createElement('button');
+      copyBtn.textContent = '⧉';
+      copyBtn.title = 'Copy note as text';
+      copyBtn.onclick = e => { e.stopPropagation(); invoke('copy_note', { id: note.id, markdown: false }); };
+      bottom.appendChild(copyBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '🗑';
+      delBtn.title = 'Delete this note…';
+      delBtn.onclick = e => { e.stopPropagation(); confirmDelete(note); };
+      bottom.appendChild(delBtn);
+    }
+    card.appendChild(bottom);
+
+    card.onclick = () => {
+      if (selectMode) {
+        if (selected.has(note.id)) selected.delete(note.id); else selected.add(note.id);
+        updateSelectBar();
+        render();
+      } else {
+        invoke('open_note', { id: note.id });
+      }
+    };
+    cardsEl.appendChild(card);
+  }
+}
+
+function confirmDelete(note) {
+  if (confirm(`Delete "${titleFor(note)}"?\n\nThis permanently deletes the note. You can't undo this.`)) {
+    invoke('delete_note_cmd', { id: note.id }).then(load);
+  }
+}
+
+function updateSelectBar() {
+  document.getElementById('selCount').textContent = `${selected.size} selected`;
+  const allSelected = selected.size > 0 && selected.size === filtered().length;
+  document.getElementById('selectAllBtn').textContent = allSelected ? 'Deselect All' : 'Select All';
+  document.getElementById('deleteBtn').disabled = selected.size === 0;
+}
+
+function setSelectMode(on) {
+  selectMode = on;
+  selected.clear();
+  document.getElementById('selCount').style.display = on ? '' : 'none';
+  document.getElementById('selectAllBtn').style.display = on ? '' : 'none';
+  document.getElementById('deleteBtn').style.display = on ? '' : 'none';
+  document.getElementById('cancelBtn').style.display = on ? '' : 'none';
+  document.getElementById('selectBtn').style.display = on ? 'none' : '';
+  document.getElementById('newNoteBtn').style.display = on ? 'none' : '';
+  document.getElementById('helpBtn').style.display = on ? 'none' : '';
+  updateSelectBar();
+  render();
+}
+
+document.getElementById('selectBtn').onclick = () => setSelectMode(true);
+document.getElementById('cancelBtn').onclick = () => setSelectMode(false);
+document.getElementById('newNoteBtn').onclick = () => invoke('board_new_note');
+document.getElementById('helpBtn').onclick = () => invoke('board_show_help');
+document.getElementById('selectAllBtn').onclick = () => {
+  const all = filtered();
+  if (selected.size === all.length) selected.clear();
+  else all.forEach(n => selected.add(n.id));
+  updateSelectBar();
+  render();
+};
+document.getElementById('deleteBtn').onclick = () => {
+  const count = selected.size;
+  if (!count) return;
+  if (confirm(`Delete ${count} note${count === 1 ? '' : 's'}?\n\nThis permanently deletes them. You can't undo this.`)) {
+    invoke('batch_delete_notes', { ids: Array.from(selected) }).then(() => { setSelectMode(false); load(); });
+  }
+};
+searchEl.oninput = () => { query = searchEl.value; render(); };
+
+function load() {
+  invoke('list_notes').then(result => { notes = result; render(); });
+}
+
+load();
+// Lightweight polling instead of a push-based notesChanged event — good enough for
+// a board window that isn't usually left open while editing notes elsewhere.
+setInterval(load, 2000);
+</script>
+</body>
+</html>
