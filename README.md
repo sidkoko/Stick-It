@@ -26,6 +26,12 @@ A native macOS sticky notes app, built because Apple's Stickies wasn't cutting i
 
 That's it — Stick-It opens, and every launch after this is instant, no more warnings. ([Same steps, as a webpage →](https://claude.ai/code/artifact/0f0214ff-8904-4aa5-a158-0fab4f0fe7f5))
 
+### Windows
+
+The Windows build ships from this same repo on its own release line, tagged `win-v*` — grab the `.exe` installer from a **Stick-It for Windows** release. It's at an earlier version than the Mac app and says so; the two version numbers are independent on purpose.
+
+Windows will warn about an unknown publisher, same reason macOS does. Click **More info → Run anyway**.
+
 ## Building from source
 
 Requires macOS 14+ and Swift 5.9+ (ships with Xcode / Command Line Tools).
