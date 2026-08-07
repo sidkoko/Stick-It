@@ -75,7 +75,10 @@
     border: 1.5px solid rgba(255,255,255,.7); flex: 0 0 auto;
   }
 
-  body.collapsed #toolbar, body.collapsed #wrap, body.collapsed #foldband, body.collapsed #curl { display: none; }
+  /* .rz included: a collapsed note is only a bar tall, so a live resize handle would
+     stretch the window open around content that's still hidden — a dead blank slab. */
+  body.collapsed #toolbar, body.collapsed #wrap, body.collapsed #foldband, body.collapsed #curl,
+  body.collapsed .rz { display: none; }
   body.collapsed #card { border-radius: 6px; }
 
   /* ---------- page ---------- */
@@ -216,8 +219,8 @@
 
 <div id="card">
   <div id="bar">
-    <button id="closeBtn" title="Hide this note">✕</button>
-    <button id="collapseBtn" title="Collapse">
+    <button id="closeBtn" title="Hide — the note is kept, reopen it from the menu bar">✕</button>
+    <button id="collapseBtn" title="Collapse to just this bar">
       <svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <div id="nameLabel" class="placeholder">Name me…</div>
@@ -345,7 +348,7 @@ function setCollapsed(on) {
   document.body.classList.toggle('collapsed', on);
   const btn = document.getElementById('collapseBtn');
   btn.classList.toggle('flipped', on);
-  btn.title = on ? 'Expand' : 'Collapse';
+  btn.title = on ? 'Expand' : 'Collapse to just this bar';
 }
 
 function syncNameLabel() {
@@ -514,7 +517,9 @@ ed.addEventListener('keydown', e => {
   if (!node || node.nodeType !== 3) return;
   if (closest(node, 'li')) return;
   const block = blockOf(node);
-  const prefix = (block ? block.innerText : node.textContent).trim();
+  // The first line of a note is a bare text node parented straight to #editor, so blockOf
+  // hands back the text node itself — no innerText on those. Same shape clearBlock guards for.
+  const prefix = (block && block.nodeType === 1 ? block.innerText : node.textContent).trim();
   if (node.textContent.slice(0, s.anchorOffset).trim() !== prefix) return;
   const run = fn => { e.preventDefault(); clearBlock(block, node); fn(); scheduleSave(); };
   if (prefix === '-' || prefix === '*') run(() => document.execCommand('insertUnorderedList'));

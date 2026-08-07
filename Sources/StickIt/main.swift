@@ -103,10 +103,13 @@ final class NoteManager {
       <li><input type="checkbox" contenteditable="false">Press <b>⌥⌘N</b> anywhere for a new note</li>
       <li><input type="checkbox" contenteditable="false"><b>Pull the curled corner</b> ↘ to tear a fresh page off the pad</li>
       <li><input type="checkbox" contenteditable="false">Hit <b>✏️</b> up top and doodle on me</li>
+      <li><input type="checkbox" contenteditable="false">Double-tap <b>Control</b> and just talk — dictation types for you</li>
       <li><input type="checkbox" contenteditable="false">Click <b>⋯</b> up top for All Notes, Help, and more</li>
     </ul>
     <div><br></div>
     <div>Type a name straight into the bar up top. 📌 pins a note on top of everything, on every desktop. Everything saves itself.</div>
+    <div><br></div>
+    <div>📝 <b>Your notes live in the menu bar</b> — click the note icon up there any time to jump back to one.</div>
     """
 }
 
@@ -220,8 +223,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 extension AppDelegate: NSMenuDelegate {
+    // Tag marking the rebuilt-every-open recents block, so it can be swapped out
+    // without disturbing the fixed items below it.
+    private static let recentTag = 811
+    private static let recentCount = 6
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         loginMenuItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        rebuildRecents(in: menu)
+    }
+
+    // Getting back to a note you already wrote shouldn't require knowing that the board
+    // exists — one click on the menu bar icon and your notes are right there.
+    private func rebuildRecents(in menu: NSMenu) {
+        for item in menu.items where item.tag == Self.recentTag {
+            menu.removeItem(item)
+        }
+        let recents = Array(NoteStore.shared.all.prefix(Self.recentCount))
+        guard !recents.isEmpty else { return }
+
+        var index = 0
+        func insert(_ item: NSMenuItem) {
+            item.tag = Self.recentTag
+            menu.insertItem(item, at: index)
+            index += 1
+        }
+
+        let header = NSMenuItem(title: "Recent Notes", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        insert(header)
+        for note in recents {
+            let item = NSMenuItem(title: note.title, action: #selector(openRecent(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = note.id
+            item.image = (NoteColor(rawValue: note.color) ?? .yellow).swatch
+            item.toolTip = note.open ? "Bring this note to the front" : "Reopen this note"
+            insert(item)
+        }
+        insert(.separator())
+    }
+
+    @objc private func openRecent(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String,
+              let note = NoteStore.shared.notes[id] else { return }
+        NoteManager.shared.show(note)
     }
 }
 
