@@ -72,19 +72,65 @@ impl Note {
 
     // Mirrors Note.title in Sources/StickIt/NoteStore.swift.
     pub fn title(&self) -> String {
-        if let Some(name) = &self.name {
-            if !name.is_empty() {
-                return name.clone();
-            }
-        }
-        for line in self.text.split('\n') {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                return trimmed.chars().take(48).collect();
-            }
-        }
-        "New Note".to_string()
+        title_of(&self.name, &self.text)
     }
+}
+
+fn title_of(name: &Option<String>, text: &str) -> String {
+    if let Some(name) = name {
+        if !name.is_empty() {
+            return name.clone();
+        }
+    }
+    for line in text.split('\n') {
+        let trimmed = line.trim();
+        if !trimmed.is_empty() {
+            return trimmed.chars().take(48).collect();
+        }
+    }
+    "New Note".to_string()
+}
+
+/// Just enough of a note to label a menu item. Deserializing the whole `Note` for this
+/// would allocate every embedded drawing and image as a String — megabytes of base64 —
+/// on a path that runs after every autosave. Serde skips the fields it isn't asked for.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteHead {
+    pub id: String,
+    pub name: Option<String>,
+    #[serde(default)]
+    pub text: String,
+    pub updated_at: f64,
+}
+
+impl NoteHead {
+    pub fn title(&self) -> String {
+        title_of(&self.name, &self.text)
+    }
+}
+
+/// The `limit` most-recently-updated notes, newest first — open or hidden alike.
+pub fn recent_heads(app: &tauri::AppHandle, limit: usize) -> Vec<NoteHead> {
+    let mut heads: Vec<NoteHead> = Vec::new();
+    if let Ok(entries) = fs::read_dir(notes_dir(app)) {
+        for entry in entries.flatten() {
+            if entry.path().extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(data) = fs::read_to_string(entry.path()) else { continue };
+            if let Ok(head) = serde_json::from_str::<NoteHead>(&data) {
+                heads.push(head);
+            }
+        }
+    }
+    heads.sort_by(|a, b| {
+        b.updated_at
+            .partial_cmp(&a.updated_at)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    heads.truncate(limit);
+    heads
 }
 
 pub fn now_secs() -> f64 {
@@ -99,7 +145,12 @@ pub fn save(app: &tauri::AppHandle, note: &Note) -> std::io::Result<()> {
     let dir = notes_dir(app);
     fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{}.json", note.id));
-    fs::write(path, serde_json::to_vec_pretty(note)?)
+    let result = fs::write(path, serde_json::to_vec_pretty(note)?);
+    // Every persisted change routes through here — renames, edits, new notes — so this
+    // is the one place the tray's recents list can be kept honest without sprinkling
+    // refresh calls across a dozen call sites. It no-ops unless the list actually moved.
+    crate::refresh_tray_menu(app);
+    result
 }
 
 #[cfg(test)]
