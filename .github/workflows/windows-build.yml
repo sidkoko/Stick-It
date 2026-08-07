@@ -52,11 +52,22 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # `gh release view` failing is how we ask "does this release exist yet?", so a
+          # non-zero exit here must stay a value, not an exception. GitHub's pwsh wrapper
+          # sets $ErrorActionPreference='stop', and whether that turns a native command's
+          # exit code into a terminating error depends on the runner's PowerShell version
+          # — pinned explicitly so this doesn't hinge on which one the image ships.
+          $PSNativeCommandUseErrorActionPreference = $false
+
           $tag = $env:GITHUB_REF_NAME
           $exe = Get-ChildItem src-tauri/target/release/bundle/nsis/*.exe | Select-Object -First 1
           if (-not $exe) { throw "no installer found to attach" }
-          gh release view $tag 2>$null
+
+          gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --title "Stick-It for Windows $tag" --notes "Windows build. Run the installer; SmartScreen will warn about an unknown publisher — click More info, then Run anyway."
+            if ($LASTEXITCODE -ne 0) { throw "gh release create failed ($LASTEXITCODE)" }
           }
+
           gh release upload $tag $exe.FullName --clobber
+          if ($LASTEXITCODE -ne 0) { throw "gh release upload failed ($LASTEXITCODE)" }
