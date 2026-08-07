@@ -47,6 +47,11 @@ const MIN_W: f64 = 320.0;
 const MIN_H: f64 = 200.0;
 const BAR_HEIGHT: f64 = 30.0; // matches NoteWindowController.barHeight / editor.html's #bar
 const TRAY_ICON_BYTES: &[u8] = include_bytes!("../icons/icon.png");
+const TRAY_ID: &str = "stickit-tray";
+const RECENT_COUNT: usize = 6; // matches AppDelegate.recentCount on macOS
+// Fingerprint of the recents list as the tray last drew it, so a rebuild only happens
+// when the menu would actually look different — see refresh_tray_menu.
+static LAST_RECENTS: Mutex<String> = Mutex::new(String::new());
 
 // Mirrors NoteColor.hex in Sources/StickIt/NoteStore.swift.
 fn hex_for_color(color: &str) -> &'static str {
@@ -91,6 +96,8 @@ fn delete_note(app: &AppHandle, note_id: &str) {
     app.state::<Notes>().0.lock().unwrap().remove(note_id);
     let path = note_store::notes_dir(app).join(format!("{note_id}.json"));
     let _ = std::fs::remove_file(path);
+    // The only note mutation that doesn't route through note_store::save().
+    refresh_tray_menu(app);
 }
 
 /// Mirrors NoteManager.discardIfUntouched(): a peeled-then-abandoned page vanishes
@@ -179,6 +186,15 @@ fn win(
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let dx = dx.unwrap_or(0.0);
     let dy = dy.unwrap_or(0.0);
+    // A collapsed note is one bar tall with its content hidden — resizing it would just
+    // stretch a blank slab with nothing in it. editor.html hides the handles while
+    // collapsed too; this covers any message that still arrives (in-flight drags, a
+    // stale page). Mirrors the same guard in NoteWindow.swift's handleWin.
+    if matches!(phase.as_str(), "resizeStart" | "resize")
+        && with_note(&notes, &label, |n| n.collapsed).unwrap_or(false)
+    {
+        return Ok(());
+    }
     match phase.as_str() {
         "dragStart" => {
             let pos = window
@@ -705,7 +721,36 @@ fn restore_open_notes(app: &AppHandle) {
     }
 }
 
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+/// Builds the whole tray menu, recents included. Takes the heads rather than reading
+/// them again so a refresh only touches the disk once.
+fn tray_menu(app: &AppHandle, recents: &[note_store::NoteHead]) -> tauri::Result<Menu<Wry>> {
+    let mut items: Vec<Box<dyn IsMenuItem<Wry>>> = Vec::new();
+
+    // Getting back to a note you already wrote shouldn't require knowing the All Notes
+    // board exists — one click on the tray icon and they're right there. Mirrors
+    // AppDelegate.rebuildRecents in Sources/StickIt/main.swift.
+    // ponytail: text only, where the macOS menu draws a colour swatch per note
+    // (NoteColor.swatch) — add IconMenuItem here if the dots turn out to matter.
+    if !recents.is_empty() {
+        items.push(Box::new(MenuItem::with_id(
+            app,
+            "recent_header",
+            "Recent Notes",
+            false,
+            None::<&str>,
+        )?));
+        for head in recents {
+            items.push(Box::new(MenuItem::with_id(
+                app,
+                format!("recent:{}", head.id),
+                head.title(),
+                true,
+                None::<&str>,
+            )?));
+        }
+        items.push(Box::new(PredefinedMenuItem::separator(app)?));
+    }
+
     let new_note = MenuItem::with_id(app, "new_note", "New Note", true, Some("Ctrl+Alt+N"))?;
     let all_notes = MenuItem::with_id(app, "all_notes", "All Notes…", true, None::<&str>)?;
     let help = MenuItem::with_id(app, "help", "Help", true, None::<&str>)?;
@@ -720,24 +765,66 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     )?;
     let quit = MenuItem::with_id(app, "quit", "Quit Stick-It", true, None::<&str>)?;
 
-    let menu = Menu::with_items(
-        app,
-        &[
-            &new_note,
-            &all_notes,
-            &PredefinedMenuItem::separator(app)?,
-            &help,
-            &launch_at_login,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )?;
+    items.push(Box::new(new_note));
+    items.push(Box::new(all_notes));
+    items.push(Box::new(PredefinedMenuItem::separator(app)?));
+    items.push(Box::new(help));
+    items.push(Box::new(launch_at_login));
+    items.push(Box::new(PredefinedMenuItem::separator(app)?));
+    items.push(Box::new(quit));
 
-    TrayIconBuilder::new()
+    let refs: Vec<&dyn IsMenuItem<Wry>> = items.iter().map(|b| b.as_ref()).collect();
+    Menu::with_items(app, &refs)
+}
+
+/// Identity of the visible recents list: what would have to change for the menu to look
+/// different. Control chars as separators so a note titled like a delimiter can't forge one.
+fn recents_fingerprint(recents: &[note_store::NoteHead]) -> String {
+    recents
+        .iter()
+        .map(|h| format!("{}\u{1}{}", h.id, h.title()))
+        .collect::<Vec<_>>()
+        .join("\u{2}")
+}
+
+/// The recents list is only useful if it's current, but rebuilding a native menu on
+/// every autosave would churn it several times a second while you type — and on Windows
+/// swapping a menu that's open is asking for trouble. So this only swaps when the
+/// visible list actually changed (new note, deletion, rename, a reorder).
+fn refresh_tray_menu(app: &AppHandle) {
+    let recents = note_store::recent_heads(app, RECENT_COUNT);
+    let fingerprint = recents_fingerprint(&recents);
+    {
+        let mut last = LAST_RECENTS.lock().unwrap();
+        if *last == fingerprint {
+            return;
+        }
+        *last = fingerprint;
+    }
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        match tray_menu(app, &recents) {
+            Ok(menu) => {
+                let _ = tray.set_menu(Some(menu));
+            }
+            Err(e) => eprintln!("tray menu rebuild failed: {e}"),
+        }
+    }
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let recents = note_store::recent_heads(app, RECENT_COUNT);
+    *LAST_RECENTS.lock().unwrap() = recents_fingerprint(&recents);
+
+    TrayIconBuilder::with_id(TRAY_ID)
         .icon(Image::from_bytes(TRAY_ICON_BYTES)?)
-        .menu(&menu)
+        .menu(&tray_menu(app, &recents)?)
         .show_menu_on_left_click(true)
         .on_menu_event(|app, event| match event.id().as_ref() {
+            id if id.starts_with("recent:") => {
+                if let Err(e) = open_note_by_id(app, &id["recent:".len()..]) {
+                    eprintln!("opening recent note failed: {e}");
+                }
+            }
             "new_note" => spawn_new_note(app),
             "all_notes" => show_board_window(app),
             "help" => show_help_window(app),
@@ -861,17 +948,23 @@ fn list_notes(app: AppHandle) -> Result<Vec<Note>, String> {
     Ok(result)
 }
 
-#[tauri::command]
-fn open_note(app: AppHandle, id: String) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window(&id) {
+/// Mirrors NoteManager.show(): focus the note's window if it's already up, otherwise
+/// reopen it from disk. Shared by the board's open button and the tray's recents list.
+fn open_note_by_id(app: &AppHandle, id: &str) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(id) {
         return w.set_focus().map_err(|e| e.to_string());
     }
-    let path = note_store::notes_dir(&app).join(format!("{id}.json"));
+    let path = note_store::notes_dir(app).join(format!("{id}.json"));
     let data = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
     let mut note: Note = serde_json::from_str(&data).map_err(|e| e.to_string())?;
     note.open = true;
-    note_store::save(&app, &note).map_err(|e| e.to_string())?;
-    spawn_note_window(&app, note).map_err(|e| e.to_string())
+    note_store::save(app, &note).map_err(|e| e.to_string())?;
+    spawn_note_window(app, note).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn open_note(app: AppHandle, id: String) -> Result<(), String> {
+    open_note_by_id(&app, &id)
 }
 
 #[tauri::command]

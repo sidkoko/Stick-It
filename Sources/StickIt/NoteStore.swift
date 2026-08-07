@@ -60,6 +60,15 @@ enum NoteColor: String, CaseIterable {
 
     // slightly darker shade for the note's title bar
     var barColor: NSColor { nsColor.blended(withFraction: 0.08, of: .black) ?? nsColor }
+
+    /// Round colour chip for menu items.
+    var swatch: NSImage {
+        NSImage(size: NSSize(width: 16, height: 16), flipped: false) { [nsColor] rect in
+            nsColor.setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
+            return true
+        }
+    }
 }
 
 extension Notification.Name {

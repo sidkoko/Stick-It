@@ -18,6 +18,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
     private var peelStart: NSPoint?
     private var spawnedID: String?
     private var frameSaveWork: DispatchWorkItem?
+    private var animatingCollapse = false
+    private var collapseGeneration = 0
 
     init(note: Note) {
         self.note = note
@@ -159,10 +161,14 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
             guard let origin = dragStart,
                   let dx = body["dx"] as? Double, let dy = body["dy"] as? Double else { return }
             window.setFrameOrigin(NSPoint(x: origin.x + dx, y: origin.y - dy))
+        // A collapsed note is one bar tall with its content hidden — resizing it would
+        // just stretch a blank slab. The CSS hides the handles too; this covers any
+        // message that still arrives (other webview hosts, in-flight drags).
         case "resizeStart":
+            guard !note.collapsed else { return }
             resizeStart = window.frame
         case "resize":
-            guard let start = resizeStart,
+            guard !note.collapsed, let start = resizeStart,
                   let dx = body["dx"] as? Double, let dy = body["dy"] as? Double,
                   let edge = body["edge"] as? String else { return }
             var f = start
@@ -229,7 +235,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
             let item = NSMenuItem(title: c.rawValue.capitalized, action: #selector(pickColor(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = c.rawValue
-            item.image = swatch(c.nsColor)
+            item.image = c.swatch
             item.state = c.rawValue == note.color ? .on : .off
             menu.addItem(item)
         }
@@ -309,14 +315,6 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
         NoteStore.shared.save(note)
     }
 
-    private func swatch(_ color: NSColor) -> NSImage {
-        NSImage(size: NSSize(width: 16, height: 16), flipped: false) { rect in
-            color.setFill()
-            NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1)).fill()
-            return true
-        }
-    }
-
     @objc private func copyText() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(note.text, forType: .string)
@@ -354,11 +352,26 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
 
     private func toggleCollapsed() {
         guard let window else { return }
+        // The animation moves and resizes the window, which fires windowDidMove for every
+        // intermediate frame. Any save that lands while that's in flight — a pending one
+        // from a drag just before, or a fresh one mid-animation — would record a half-grown
+        // height as the note's real height and shrink it for good. Freeze saving instead.
+        frameSaveWork?.cancel()
+        let wasAnimating = animatingCollapse
+        animatingCollapse = true
+        // Toggling again mid-animation leaves the previous group's completion handler still
+        // queued — it would hide the content of a note that's now expanding (a live-looking
+        // but blank note) and unfreeze saving while the new animation is still running.
+        // Only the newest toggle gets to finish.
+        collapseGeneration += 1
+        let generation = collapseGeneration
         note.collapsed.toggle()
         let collapsing = note.collapsed
         var frame = window.frame
         if collapsing {
-            expandedHeight = frame.height
+            // Interrupting an in-flight animation means window.frame is a half-grown height —
+            // not the size to come back to. The last settled height still stands.
+            if !wasAnimating { expandedHeight = frame.height }
             frame.origin.y += frame.height - Self.barHeight
             frame.size.height = Self.barHeight
         } else {
@@ -373,9 +386,12 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             window.animator().setFrame(frame, display: true)
         }, completionHandler: { [weak self] in
+            guard let self, self.collapseGeneration == generation else { return }
             // hide content only after the shrink finishes, so it visibly rolls away rather
             // than vanishing instantly while the window is still animating around it
-            if collapsing { self?.webView.evaluateJavaScript("setCollapsed(true)") }
+            if collapsing { self.webView.evaluateJavaScript("setCollapsed(true)") }
+            self.animatingCollapse = false
+            self.saveFrame()
         })
         window.invalidateShadow()
         NoteStore.shared.save(note)
@@ -389,7 +405,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
     }
 
     private func saveFrame() {
-        guard let f = window?.frame else { return }
+        guard !animatingCollapse, let f = window?.frame else { return }
         note.x = f.origin.x
         note.y = f.origin.y
         note.w = f.width
