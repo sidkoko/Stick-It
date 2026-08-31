@@ -119,9 +119,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
         guard let action = body["action"] as? String else { return }
         switch action {
         case "close":
-            note.open = false
-            NoteStore.shared.save(note)
-            close()
+            hideNote()
         case "collapse":
             toggleCollapsed()
         case "pin":
@@ -141,6 +139,15 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
             popUp(moreMenu(), body)
         default: break
         }
+    }
+
+    /// Same effect as ✕: not deleted, just put away — reachable again from All Notes or
+    /// the menu bar's Recent Notes list. Shared by the bar button and the ⋯ menu item so
+    /// there are two doors into the same place, not two behaviors to keep in sync.
+    private func hideNote() {
+        note.open = false
+        NoteStore.shared.save(note)
+        close()
     }
 
     /// Shows an NSMenu just below the HTML button that asked for it.
@@ -280,6 +287,8 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
         menu.addItem(.separator())
         item("Help", #selector(openHelp))
         menu.addItem(.separator())
+        // Sits next to Delete on purpose — the two read as a pair: one reversible, one not.
+        item("Hide This Note", #selector(hideThisNote))
         item("Delete This Note…", #selector(deleteThisNote))
         menu.addItem(.separator())
         item("Quit Stick-It", #selector(NSApplication.terminate(_:)), NSApp)
@@ -289,6 +298,7 @@ final class NoteWindowController: NSWindowController, NSWindowDelegate, WKScript
     @objc private func openBoard() { BoardWindow.shared.show() }
     @objc private func openHelp() { HelpWindow.shared.show() }
     @objc private func newNote() { NoteManager.shared.newNote() }
+    @objc private func hideThisNote() { hideNote() }
 
     @objc private func deleteThisNote() {
         let alert = NSAlert()
