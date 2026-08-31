@@ -149,8 +149,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // This app has no visible menu bar (it's a background/accessory app), so without this,
     // macOS has no menu claiming ⌘C/⌘V/etc. and never routes them anywhere — the WKWebView
-    // in every note already implements cut/copy/paste/select-all, it just needs something to
-    // send the key equivalent to it. Deliberately omits Undo/Redo — that's meant to do nothing.
+    // in every note already implements cut/copy/paste/select-all/undo/redo for its editable
+    // content, it just needs something to send the key equivalent to it. Undo/Redo route to
+    // whatever's first responder same as the others — each note's WKWebView keeps its own
+    // internal edit-undo stack, so this reverts typing/formatting per note, same as any text
+    // editor's ⌘Z. It has nothing to do with a deleted note coming back — that stays final.
     private func installEditMenu() {
         let mainMenu = NSMenu()
 
@@ -164,6 +167,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         mainMenu.addItem(editMenuItem)
         let editMenu = NSMenu(title: "Edit")
         editMenuItem.submenu = editMenu
+        editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
+        let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redoItem)
+        editMenu.addItem(.separator())
         editMenu.addItem(NSMenuItem(title: "Cut", action: Selector(("cut:")), keyEquivalent: "x"))
         editMenu.addItem(NSMenuItem(title: "Copy", action: Selector(("copy:")), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: "Paste", action: Selector(("paste:")), keyEquivalent: "v"))

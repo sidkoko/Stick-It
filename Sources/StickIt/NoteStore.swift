@@ -18,6 +18,7 @@ struct Note: Codable {
     // missing key, so existing notes saved before this field existed would fail to decode
     // entirely and vanish from the store. Optional decodes a missing key as nil for free.
     var images: [NoteImage]?
+    var group: String?      // nil = ungrouped; a plain string so groups need no separate store
     var color: String = "yellow"
     var x: Double = 0, y: Double = 0, w: Double = 300, h: Double = 280
     var pinned: Bool = true

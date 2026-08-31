@@ -26,15 +26,38 @@ struct BoardView: View {
     @State private var query = ""
     @State private var selectMode = false
     @State private var selected: Set<String> = []
+    @State private var activeGroup: String? = nil   // nil = "All"
+    @State private var backTargeted = false
     @State private var updateInfo: UpdateChecker.ReleaseInfo?
     @AppStorage("dismissedUpdateVersion") private var dismissedVersion = ""
 
-    private var filtered: [Note] {
-        query.isEmpty ? notes
-            : notes.filter {
-                $0.text.localizedCaseInsensitiveContains(query)
-                    || $0.title.localizedCaseInsensitiveContains(query)
-            }
+    // Distinct group names in use, alphabetical — a group only exists as long as some
+    // note still points at it, so this list needs no separate store to stay in sync.
+    private var groups: [String] {
+        Set(notes.compactMap { $0.group?.isEmpty == false ? $0.group : nil }).sorted()
+    }
+
+    // Folders shown as single cards on the top-level grid — only when you're actually
+    // looking at the top level with nothing typed. The moment you search, folders would
+    // just hide the note you're looking for, so search reaches straight through them.
+    private var topLevelFolders: [String] {
+        activeGroup == nil && query.isEmpty ? groups : []
+    }
+
+    private func matchesQuery(_ note: Note) -> Bool {
+        query.isEmpty || note.text.localizedCaseInsensitiveContains(query)
+            || note.title.localizedCaseInsensitiveContains(query)
+    }
+
+    // The individual note cards on the grid: inside a folder (or mid-search) that's every
+    // matching note; at the top level with no search it's only the ungrouped ones — their
+    // grouped siblings are standing in as folder cards instead of appearing twice.
+    private var gridNotes: [Note] {
+        if let g = activeGroup {
+            return notes.filter { $0.group == g }.filter(matchesQuery)
+        }
+        let base = query.isEmpty ? notes.filter { ($0.group ?? "").isEmpty } : notes
+        return base.filter(matchesQuery)
     }
 
     var body: some View {
@@ -50,13 +73,17 @@ struct BoardView: View {
                     Text("\(selected.count) selected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Button(selected.count == filtered.count ? "Deselect All" : "Select All") {
-                        if selected.count == filtered.count {
+                    Button(selected.count == gridNotes.count ? "Deselect All" : "Select All") {
+                        if selected.count == gridNotes.count {
                             selected.removeAll()
                         } else {
-                            selected = Set(filtered.map(\.id))
+                            selected = Set(gridNotes.map(\.id))
                         }
                     }
+                    Button { promptGroup(for: selected) } label: {
+                        Label("Group…", systemImage: "folder")
+                    }
+                    .disabled(selected.isEmpty)
                     Button(role: .destructive) { confirmBatchDelete() } label: {
                         Label("Delete", systemImage: "trash")
                     }
@@ -82,35 +109,137 @@ struct BoardView: View {
                 }
             }
             .padding(12)
+            // Folder cards are already the way in — a picker that does the same thing a
+            // second time is the confusing part. The only thing genuinely missing is a way
+            // back out, so that's the only control this row exists for.
+            if let g = activeGroup {
+                Divider()
+                HStack(spacing: 6) {
+                    Button {
+                        activeGroup = nil
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
+                            Text("All Notes").font(.system(size: 12, weight: .medium))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    Text("/").foregroundStyle(.tertiary)
+                    Label(g, systemImage: "folder.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                // Dragging a note out to "All Notes" mirrors the way back in: drop it on
+                // a folder card to join, drop it here to leave.
+                .background(backTargeted ? Color.accentColor.opacity(0.12) : .clear)
+                .dropDestination(for: String.self) { ids, _ in
+                    assignGroup(Set(ids), to: nil)
+                    return true
+                } isTargeted: { backTargeted = $0 }
+            }
             Divider()
-            if filtered.isEmpty {
+            if topLevelFolders.isEmpty && gridNotes.isEmpty {
                 Spacer()
-                Text(query.isEmpty ? "No notes yet — make one!" : "No notes match “\(query)”")
+                Text(emptyMessage)
                     .foregroundStyle(.secondary)
                 Spacer()
             } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 14)], spacing: 14) {
-                        ForEach(filtered, id: \.id) { note in
-                            NoteCard(note: note, selectMode: selectMode, isSelected: selected.contains(note.id)) {
-                                if selected.contains(note.id) { selected.remove(note.id) }
-                                else { selected.insert(note.id) }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 14)], spacing: 14) {
+                            ForEach(topLevelFolders, id: \.self) { g in
+                                GroupCard(name: g, count: notes.filter { $0.group == g }.count) {
+                                    activeGroup = g
+                                } onDrop: { id in
+                                    assignGroup(Set([id]), to: g)
+                                }
+                            }
+                            ForEach(gridNotes, id: \.id) { note in
+                                // Inside its own folder the badge would just repeat the
+                                // breadcrumb — only worth showing when a search reached past
+                                // folder boundaries and the group isn't otherwise obvious.
+                                NoteCard(note: note, selectMode: selectMode,
+                                         isSelected: selected.contains(note.id),
+                                         showGroupBadge: activeGroup == nil,
+                                         onToggleSelect: {
+                                    if selected.contains(note.id) { selected.remove(note.id) }
+                                    else { selected.insert(note.id) }
+                                }, onRemoveFromGroup: {
+                                    assignGroup(Set([note.id]), to: nil)
+                                })
+                            }
+                        }
+                        .padding(14)
+                        .id("gridTop")
+                    }
+                    .overlay(alignment: .top) {
+                        // Folder cards always sit at the top of the grid, so "scroll toward
+                        // where I can drop this" only ever means one place — a plain jump-
+                        // to-top beats building real incremental autoscroll for that.
+                        if !topLevelFolders.isEmpty {
+                            ScrollUpDropZone {
+                                withAnimation { proxy.scrollTo("gridTop", anchor: .top) }
                             }
                         }
                     }
-                    .padding(14)
                 }
             }
         }
         .frame(minWidth: 420, minHeight: 300)
         .onReceive(NotificationCenter.default.publisher(for: .notesChanged)) { _ in
             notes = NoteStore.shared.all
+            // The active filter can outlive its group — its last note got deleted or
+            // regrouped elsewhere — in which case falling back to "All" beats showing
+            // an empty grid for a group that no longer exists.
+            if let g = activeGroup, !groups.contains(g) { activeGroup = nil }
         }
         .task {
             guard let latest = await UpdateChecker.fetchLatest(),
                   UpdateChecker.isNewer(latest.version, than: UpdateChecker.currentVersion) else { return }
             updateInfo = latest
         }
+    }
+
+    private var emptyMessage: String {
+        if !query.isEmpty { return "No notes match “\(query)”" }
+        if let g = activeGroup { return "No notes in “\(g)”" }
+        return "No notes yet — make one!"
+    }
+
+    // A group is just a shared string on each note — no separate entity to keep in sync.
+    // Shared by the Select→Group… dialog (batch, can create/rename a group) and drag-drop
+    // (single note, only ever moves it into or out of a group that already has a card).
+    private func assignGroup(_ ids: Set<String>, to name: String?) {
+        let name = name?.trimmingCharacters(in: .whitespaces)
+        for id in ids {
+            guard var note = NoteStore.shared.notes[id] else { continue }
+            note.group = (name?.isEmpty ?? true) ? nil : name
+            NoteStore.shared.save(note)
+        }
+    }
+
+    private func promptGroup(for ids: Set<String>) {
+        let alert = NSAlert()
+        let count = ids.count
+        alert.messageText = "Group \(count) note\(count == 1 ? "" : "s")"
+        alert.informativeText = "Enter a group name, or clear it to ungroup."
+        alert.addButton(withTitle: "Group")
+        alert.addButton(withTitle: "Cancel")
+
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        let current = Set(ids.compactMap { NoteStore.shared.notes[$0]?.group })
+        field.stringValue = current.count == 1 ? (current.first ?? "") : ""
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        assignGroup(ids, to: field.stringValue)
+        selectMode = false
+        selected.removeAll()
     }
 
     private func confirmBatchDelete() {
@@ -152,11 +281,81 @@ struct UpdateBanner: View {
     }
 }
 
+/// A thin band pinned to the top edge of the note grid — hover a drag over it and the
+/// grid jumps back up to where the folder cards live, so a note buried under a long
+/// scroll of other notes can still reach a folder without a second hand on the trackpad.
+struct ScrollUpDropZone: View {
+    let scrollToTop: () -> Void
+    @State private var isTargeted = false
+
+    var body: some View {
+        Rectangle()
+            .fill(isTargeted ? Color.accentColor.opacity(0.15) : .clear)
+            .frame(height: 28)
+            .overlay(alignment: .top) {
+                if isTargeted {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                        .padding(.top, 4)
+                }
+            }
+            .contentShape(Rectangle())
+            .dropDestination(for: String.self) { _, _ in false } isTargeted: { targeted in
+                isTargeted = targeted
+                if targeted { scrollToTop() }
+            }
+    }
+}
+
+/// A folder standing in for every note sharing its group name — tap to open it and see
+/// the notes inside. Neutral gray, deliberately not a sticky color, so it reads as a
+/// container rather than another note.
+struct GroupCard: View {
+    let name: String
+    let count: Int
+    let action: () -> Void
+    var onDrop: (String) -> Void = { _ in }
+    @State private var isTargeted = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Text(name).font(.system(size: 13, weight: .semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                Text("\(count) note\(count == 1 ? "" : "s")")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, minHeight: 110, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 10).fill(isTargeted ? AnyShapeStyle(Color.accentColor.opacity(0.18)) : AnyShapeStyle(.quaternary)))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(isTargeted ? Color.accentColor : Color(nsColor: .separatorColor), lineWidth: isTargeted ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Open “\(name)” — drop a note here to add it")
+        .dropDestination(for: String.self) { ids, _ in
+            ids.forEach(onDrop)
+            return true
+        } isTargeted: { isTargeted = $0 }
+    }
+}
+
 struct NoteCard: View {
     let note: Note
     var selectMode: Bool = false
     var isSelected: Bool = false
+    var showGroupBadge: Bool = true
     var onToggleSelect: () -> Void = {}
+    var onRemoveFromGroup: () -> Void = {}
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -171,6 +370,14 @@ struct NoteCard: View {
                 if note.pinned { Image(systemName: "pin.fill").font(.system(size: 9)) }
             }
             .foregroundStyle(.black.opacity(0.75))
+            if showGroupBadge, let group = note.group, !group.isEmpty {
+                Text(group)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.black.opacity(0.5))
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.black.opacity(0.08))
+                    .clipShape(Capsule())
+            }
             Text(body_(note))
                 .font(.system(size: 11))
                 .foregroundStyle(.black.opacity(0.6))
@@ -204,6 +411,9 @@ struct NoteCard: View {
         .onTapGesture {
             if selectMode { onToggleSelect() } else { NoteManager.shared.show(note) }
         }
+        // Drag onto a folder card to join it, or onto "All Notes" (while inside a folder)
+        // to leave.
+        .draggable(note.id)
         .contextMenu {
             Button("Open") { NoteManager.shared.show(note) }
             Button("Copy as Text") {
@@ -214,6 +424,11 @@ struct NoteCard: View {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(note.md, forType: .string)
             }
+            if let group = note.group, !group.isEmpty {
+                Divider()
+                Button("Remove from “\(group)”") { onRemoveFromGroup() }
+            }
+            Divider()
             Button("Delete…", role: .destructive) { confirmDelete() }
         }
         .help(selectMode ? "Click to select" : "Click to open")
