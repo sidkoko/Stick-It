@@ -1,5 +1,8 @@
 # Stick-It 📝
 
+<!-- test comment -->
+
+
 A native macOS sticky notes app, built because Apple's Stickies wasn't cutting it. Every note is a real, borderless floating window styled to actually look and feel like paper — no hidden menus, no guessing what to click next.
 
 ## Features
