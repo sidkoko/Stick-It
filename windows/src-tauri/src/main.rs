@@ -991,14 +991,6 @@ fn board_show_help(app: AppHandle) {
     show_help_window(&app);
 }
 
-// "All Notes" is otherwise only reachable through the native tray/note-window menus,
-// which a WebDriver session can't click (they're OS chrome, not DOM). Exposed the same
-// way board_new_note/board_show_help already are, so the E2E suite has a way in.
-#[tauri::command]
-fn board_show_board(app: AppHandle) {
-    show_board_window(&app);
-}
-
 #[tauri::command]
 fn copy_note(app: AppHandle, id: String, markdown: bool) -> Result<(), String> {
     let live = app.state::<Notes>().0.lock().unwrap().get(&id).cloned();
@@ -1077,8 +1069,7 @@ fn main() {
             batch_delete_notes,
             copy_note,
             board_new_note,
-            board_show_help,
-            board_show_board
+            board_show_help
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
