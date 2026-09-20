@@ -17,7 +17,13 @@ on:
 jobs:
   test:
     name: Rust + WebDriver tests
-    runs-on: windows-latest
+    # Pinned, not windows-latest: the windows-2025 image ships a WebView2 runtime
+    # (152.0.4191.66) that never opens its DevTools port under msedgedriver, so every
+    # WebDriver session fails with "DevToolsActivePort file doesn't exist" — a known
+    # runner-image regression, not anything in this app or config:
+    # https://github.com/actions/runner-images/issues/14738 (confirmed fixed on
+    # windows-2022). Revisit windows-latest once that's patched upstream.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
