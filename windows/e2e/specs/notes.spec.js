@@ -56,8 +56,12 @@ describe('Stick-It for Windows', () => {
     const notes = await invoke('list_notes')
     await invokeNoWait('delete_note_cmd', { id: notes[0].id })
 
-    await browser.waitUntil(async () => (await invoke('list_notes')).length === 0, {
-      timeoutMsg: 'expected no notes left after the delete',
+    // Can't invoke() list_notes afterward to confirm zero notes remain — this is the
+    // ONLY note, so delete_note_cmd destroys the very window WebDriver is attached to,
+    // and any further execute() against it fails with "window already closed". The
+    // window closing at all is itself the real, observable, meaningful signal here.
+    await browser.waitUntil(async () => (await browser.getWindowHandles()).length === 0, {
+      timeoutMsg: 'expected the note\'s window to close after the delete',
     })
   })
 })
