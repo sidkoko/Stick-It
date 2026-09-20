@@ -4,12 +4,11 @@ name: Windows E2E
 # the Windows app, on an actual Windows machine — this is what makes "does the Windows
 # app work" answerable without a local VM. windows-build.yml stays focused on producing
 # the release artifact; this one is purely about catching regressions before they ship.
-#
-# push: intentionally left out for now — every failing run here emails the pusher, and
-# this workflow is still being actively debugged (see commit history). Runs are
-# triggered manually via `gh workflow run` in the meantime. Re-add push once this
-# suite is reliably green.
 on:
+  push:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-e2e.yml'
   pull_request:
     paths:
       - 'windows/**'
