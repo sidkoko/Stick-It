@@ -47,10 +47,15 @@ describe('Stick-It for Windows', () => {
     expect(notes[0].text).toBe('Hello from the E2E suite')
   })
 
-  it('creates a second note via the global New Note shortcut', async () => {
-    await browser.keys(['Control', 'Alt', 'n'])
+  it('creates a second note', async () => {
+    // Not testing this via the real Ctrl+Alt+N global shortcut: that's registered at
+    // the OS level (tauri-plugin-global-shortcut/RegisterHotKey), and WebDriver's
+    // synthetic key injection doesn't appear to reach that layer at all — it silently
+    // did nothing, then the whole session died with a socket error. board_new_note is
+    // the same command the shortcut itself calls, invoked directly instead.
+    await invokeNoWait('board_new_note')
     await browser.waitUntil(async () => (await invoke('list_notes')).length === 2, {
-      timeoutMsg: 'Ctrl+Alt+N should create a second note',
+      timeoutMsg: 'board_new_note should create a second note',
     })
   })
 
