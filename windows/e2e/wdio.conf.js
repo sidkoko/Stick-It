@@ -31,7 +31,11 @@ exports.config = {
   connectionRetryCount: 3,
   framework: 'mocha',
   reporters: ['spec'],
-  mochaOpts: { ui: 'bdd', timeout: 60000 },
+  // Bumped from 60s while diagnosing: note windows are created transparent+undecorated
+  // with a custom drag-drop override (unlike the plain board window), and constructing a
+  // layered/transparent window is known to be much slower without real GPU compositing —
+  // plausible on a CI VM. This tests "just slow" vs "actually stuck" cheaply.
+  mochaOpts: { ui: 'bdd', timeout: 150000 },
 
   // The CI job builds release separately (so a build failure shows up as its own step,
   // not buried in a wdio log), but this keeps `npm run test:e2e` self-sufficient locally
