@@ -11,7 +11,10 @@ let tauriDriver
 
 exports.config = {
   runner: 'local',
-  specs: ['./specs/**/*.spec.js'],
+  // Must be __dirname-relative, not CWD-relative: `npm run test:e2e` invokes `wdio` from
+  // windows/, but this config lives in windows/e2e/ — a plain './specs/...' resolves
+  // against the wrong directory and silently matches zero files.
+  specs: [path.join(__dirname, 'specs/**/*.spec.js')],
   maxInstances: 1,
   capabilities: [
     {
