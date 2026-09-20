@@ -56,6 +56,11 @@ describe('Stick-It for Windows', () => {
     const boardHandle = after.find(h => !before.includes(h))
     await browser.switchToWindow(boardHandle)
 
+    // Diagnostic: confirm switchToWindow actually landed us in board.html's context
+    // before blaming the card count on something in board.html's own render() logic.
+    const title = await browser.execute(() => document.title)
+    expect(title).toBe('All Notes')
+
     await browser.waitUntil(async () => (await $$('#cards > *')).length === 1, {
       timeoutMsg: 'expected one card on the board',
     })
