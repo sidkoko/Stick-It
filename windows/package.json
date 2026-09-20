@@ -4,9 +4,15 @@
   "private": true,
   "scripts": {
     "copy-assets": "node copy-assets.js",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:e2e": "wdio run e2e/wdio.conf.js"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2"
+    "@tauri-apps/cli": "^2",
+    "@wdio/cli": "^7",
+    "@wdio/local-runner": "^7",
+    "@wdio/mocha-framework": "^7",
+    "@wdio/spec-reporter": "^7",
+    "webdriverio": "^7"
   }
 }
