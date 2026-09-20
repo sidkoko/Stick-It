@@ -12,6 +12,18 @@ const invoke = (name, args) => browser.execute(
   args,
 )
 
+// execute() auto-awaits a script's returned Promise before responding — which is what
+// `invoke` above wants for data commands. But commands that create/destroy a native
+// window (board_show_board, delete_note_cmd, batch_delete_notes) hang the whole
+// WebDriver session that way: window-lifecycle operations appear to block the message
+// pump the CDP connection needs to report the promise settling at all. Fire those
+// without waiting on their promise, and confirm the resulting state by polling instead.
+const invokeNoWait = (name, args) => browser.execute(
+  (n, a) => { window.__TAURI__.core.invoke(n, a || {}) },
+  name,
+  args,
+)
+
 describe('Stick-It for Windows', () => {
   it('launches with a single blank note', async () => {
     const handles = await browser.getWindowHandles()
@@ -32,7 +44,10 @@ describe('Stick-It for Windows', () => {
   })
 
   it('shows the note on the All Notes board and can create another', async () => {
-    await invoke('board_show_board')
+    await invokeNoWait('board_show_board')
+    await browser.waitUntil(async () => (await browser.getWindowHandles()).length === 2, {
+      timeoutMsg: 'expected the board window to open',
+    })
     await browser.switchWindow('board.html')
 
     await browser.waitUntil(async () => (await $$('#cards > *')).length === 1, {
@@ -48,10 +63,12 @@ describe('Stick-It for Windows', () => {
 
   it('deletes a note through the backend command', async () => {
     const notes = await invoke('list_notes')
-    await invoke('delete_note_cmd', { id: notes[0].id })
+    await invokeNoWait('delete_note_cmd', { id: notes[0].id })
 
+    await browser.waitUntil(async () => (await invoke('list_notes')).length === 1, {
+      timeoutMsg: 'expected one note left after the delete',
+    })
     const remaining = await invoke('list_notes')
-    expect(remaining).toHaveLength(1)
     expect(remaining.find(n => n.id === notes[0].id)).toBeUndefined()
 
     await browser.execute(() => window.load())
