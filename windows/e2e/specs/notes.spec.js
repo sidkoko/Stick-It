@@ -56,10 +56,11 @@ describe('Stick-It for Windows', () => {
     const boardHandle = after.find(h => !before.includes(h))
     await browser.switchToWindow(boardHandle)
 
-    // The window handle shows up before board.html has actually finished navigating —
-    // switching to it immediately lands on a still-blank document (empty title, no
-    // window.__TAURI__ yet). Poll for real readiness instead of assuming it's instant.
-    await browser.waitUntil(async () => (await browser.execute(() => document.title)) === 'All Notes', {
+    // editor.html has no <title> tag at all, so document.title reads '' on EITHER
+    // window regardless of load state — that was a false signal. location.href
+    // actually discriminates the two pages, and also tolerates the window handle
+    // showing up slightly before navigation to board.html has finished.
+    await browser.waitUntil(async () => (await browser.execute(() => location.href)).includes('board.html'), {
       timeoutMsg: 'expected the new window to finish navigating to board.html',
     })
 
