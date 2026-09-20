@@ -44,11 +44,17 @@ describe('Stick-It for Windows', () => {
   })
 
   it('shows the note on the All Notes board and can create another', async () => {
+    const before = await browser.getWindowHandles()
     await invokeNoWait('board_show_board')
     await browser.waitUntil(async () => (await browser.getWindowHandles()).length === 2, {
       timeoutMsg: 'expected the board window to open',
     })
-    await browser.switchWindow('board.html')
+    // switchWindow(urlOrTitle) doesn't reliably match across separate native Tauri
+    // windows (it comes back empty-handed even once the window genuinely exists) —
+    // diffing the handle list before/after is the one thing that's actually reliable.
+    const after = await browser.getWindowHandles()
+    const boardHandle = after.find(h => !before.includes(h))
+    await browser.switchToWindow(boardHandle)
 
     await browser.waitUntil(async () => (await $$('#cards > *')).length === 1, {
       timeoutMsg: 'expected one card on the board',
