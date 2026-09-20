@@ -991,6 +991,15 @@ fn board_show_help(app: AppHandle) {
     show_help_window(&app);
 }
 
+// Read-only, test-only: lets the E2E suite drop a note file directly on disk (to test
+// delete_note_cmd against a note that has no open window, without guessing at Windows'
+// AppData path conventions) rather than deleting the one window it's actually attached
+// to and losing its own DevTools connection in the process.
+#[tauri::command]
+fn notes_dir_path(app: AppHandle) -> String {
+    note_store::notes_dir(&app).to_string_lossy().into_owned()
+}
+
 #[tauri::command]
 fn copy_note(app: AppHandle, id: String, markdown: bool) -> Result<(), String> {
     let live = app.state::<Notes>().0.lock().unwrap().get(&id).cloned();
@@ -1069,7 +1078,8 @@ fn main() {
             batch_delete_notes,
             copy_note,
             board_new_note,
-            board_show_help
+            board_show_help,
+            notes_dir_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

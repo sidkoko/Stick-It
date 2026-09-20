@@ -177,4 +177,14 @@ mod tests {
         assert_eq!(parsed.color, "yellow");
         assert_eq!(parsed.images.unwrap()[0].id, "img1");
     }
+
+    // Guards the fixture windows/e2e/specs/notes.spec.js writes directly to disk to test
+    // delete_note_cmd against a note with no open window — if this struct's shape ever
+    // drifts from that fixture, this fails here instead of as an opaque E2E timeout.
+    #[test]
+    fn e2e_injected_note_fixture_still_parses() {
+        let json = r#"{"id":"e2e-injected-note","name":null,"paper":null,"drawing":null,"html":"","text":"injected for delete test","md":"","images":[],"color":"yellow","x":0,"y":0,"w":300,"h":280,"pinned":true,"collapsed":false,"open":false,"createdAt":1789907376.335,"updatedAt":1789907376.335}"#;
+        let note: Note = serde_json::from_str(json).expect("E2E fixture must deserialize as a Note");
+        assert_eq!(note.id, "e2e-injected-note");
+    }
 }
