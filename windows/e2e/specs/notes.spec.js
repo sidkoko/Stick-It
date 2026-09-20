@@ -56,10 +56,12 @@ describe('Stick-It for Windows', () => {
     const boardHandle = after.find(h => !before.includes(h))
     await browser.switchToWindow(boardHandle)
 
-    // Diagnostic: confirm switchToWindow actually landed us in board.html's context
-    // before blaming the card count on something in board.html's own render() logic.
-    const title = await browser.execute(() => document.title)
-    expect(title).toBe('All Notes')
+    // The window handle shows up before board.html has actually finished navigating —
+    // switching to it immediately lands on a still-blank document (empty title, no
+    // window.__TAURI__ yet). Poll for real readiness instead of assuming it's instant.
+    await browser.waitUntil(async () => (await browser.execute(() => document.title)) === 'All Notes', {
+      timeoutMsg: 'expected the new window to finish navigating to board.html',
+    })
 
     await browser.waitUntil(async () => (await $$('#cards > *')).length === 1, {
       timeoutMsg: 'expected one card on the board',
