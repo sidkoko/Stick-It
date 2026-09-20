@@ -70,6 +70,21 @@ jobs:
         working-directory: windows/src-tauri
         run: cargo build --release
 
+      # Diagnostic: this app has never actually been run in CI before (windows-build.yml
+      # only compiles + packages it) — confirm it launches and survives a few seconds on
+      # its own before blaming tauri-driver/msedgedriver for a failed WebDriver session.
+      - name: Smoke-test the built exe launches
+        working-directory: windows/src-tauri
+        shell: pwsh
+        run: |
+          $p = Start-Process -PassThru .\target\release\stickit-windows.exe
+          Start-Sleep -Seconds 5
+          if ($p.HasExited) {
+            throw "stickit-windows.exe exited on its own within 5s (exit code $($p.ExitCode))"
+          }
+          Write-Host "still running after 5s, PID $($p.Id)"
+          Stop-Process -Id $p.Id -Force
+
       - name: WebDriverIO E2E suite
         working-directory: windows
         run: npm run test:e2e
