@@ -45,6 +45,31 @@ the All Notes board's new grouping (folders) and the new "Hide This Note" action
   load without error — `group` is `nil`-safe by design, but worth confirming an old
   note file actually opens clean
 
+## Drag-to-Select (marquee)
+
+This is the part I can't verify myself in this environment (no way to drive/screenshot
+the GUI) — the main real risk is gesture arbitration between the new marquee drag and
+the existing per-note drag-to-group gesture, so this needs an actual pass.
+
+- Click-drag starting on **empty space** between/around cards → a selection rectangle
+  should appear and grow with the drag; Select mode should turn on automatically
+  (toolbar switches to the selected-count/Group/Delete/Cancel row) even if you never
+  clicked "Select" first
+- Release the drag → every card the rectangle touched (even partially) should be
+  checked/selected
+- Start a fresh (non-shift) drag elsewhere → previous selection should be replaced, not
+  added to
+- Hold **⇧** while dragging → new cards should be added to whatever was already selected
+  instead of replacing it
+- Start the drag *on top of a note card* (not empty space) → should NOT start a marquee;
+  it should still behave like today (single click selects/opens; drag onto a folder card
+  still groups it) — this is the one most likely to misbehave, check it carefully
+- Same check starting the drag *on top of a folder card* → shouldn't start a marquee,
+  and the folder card's own click-to-open should still work normally
+- Drag a marquee across a mix of note cards and a folder card → only the notes get
+  selected, the folder card is never included in the selected count
+- Try this both inside a folder (activeGroup set) and at the top level
+
 ## Undo Text Edits (⌘Z)
 
 - Type into a note, then ⌘Z → the typed text disappears (standard text-undo, same as

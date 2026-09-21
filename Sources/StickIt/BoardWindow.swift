@@ -28,6 +28,11 @@ struct BoardView: View {
     @State private var selected: Set<String> = []
     @State private var activeGroup: String? = nil   // nil = "All"
     @State private var backTargeted = false
+    @State private var cardFrames: [String: CGRect] = [:]
+    @State private var marqueeStart: CGPoint?
+    @State private var marqueeCurrent: CGPoint?
+    @State private var marqueeBase: Set<String> = []
+    @State private var marqueeIgnoring = false
     @State private var updateInfo: UpdateChecker.ReleaseInfo?
     @AppStorage("dismissedUpdateVersion") private var dismissedVersion = ""
 
@@ -58,6 +63,45 @@ struct BoardView: View {
         }
         let base = query.isEmpty ? notes.filter { ($0.group ?? "").isEmpty } : notes
         return base.filter(matchesQuery)
+    }
+
+    private var marqueeRect: CGRect? {
+        guard let a = marqueeStart, let b = marqueeCurrent else { return nil }
+        return CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))
+    }
+
+    // Click-drag over empty grid space box-selects, like Finder — starting the drag on a
+    // card instead leaves it alone, so the card's own tap/drag-to-group gesture still
+    // gets first say. Auto-enables Select mode, same as dragging an icon on the desktop
+    // needs no "select mode" of its own.
+    private var marqueeGesture: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named("board"))
+            .onChanged { value in
+                if marqueeStart == nil {
+                    let onACard = cardFrames.values.contains { $0.contains(value.startLocation) }
+                    marqueeIgnoring = onACard
+                    guard !onACard else { return }
+                    marqueeStart = value.startLocation
+                    marqueeBase = NSEvent.modifierFlags.contains(.shift) ? selected : []
+                    if !selectMode { selectMode = true }
+                }
+                guard !marqueeIgnoring else { return }
+                marqueeCurrent = value.location
+                guard let rect = marqueeRect else { return }
+                let hitIDs = cardFrames.filter { !$0.key.hasPrefix("group:") && rect.intersects($0.value) }.map(\.key)
+                selected = marqueeBase.union(hitIDs)
+            }
+            .onEnded { _ in
+                marqueeStart = nil
+                marqueeCurrent = nil
+                marqueeIgnoring = false
+            }
+    }
+
+    private func frameReporter(key: String) -> some View {
+        GeometryReader { geo in
+            Color.clear.preference(key: CardFramePreferenceKey.self, value: [key: geo.frame(in: .named("board"))])
+        }
     }
 
     var body: some View {
@@ -157,6 +201,7 @@ struct BoardView: View {
                                 } onDrop: { id in
                                     assignGroup(Set([id]), to: g)
                                 }
+                                .background(frameReporter(key: "group:\(g)"))
                             }
                             ForEach(gridNotes, id: \.id) { note in
                                 // Inside its own folder the badge would just repeat the
@@ -171,8 +216,35 @@ struct BoardView: View {
                                 }, onRemoveFromGroup: {
                                     assignGroup(Set([note.id]), to: nil)
                                 })
+                                .background(frameReporter(key: note.id))
                             }
                         }
+                        .coordinateSpace(name: "board")
+                        // Without this, the empty gaps between cards have no hit-testable
+                        // surface of their own — a layout container only responds to a
+                        // gesture where its children actually render content, so a drag
+                        // starting in the gap (exactly where a marquee needs to start) was
+                        // silently falling through to nothing.
+                        .contentShape(Rectangle())
+                        .gesture(marqueeGesture)
+                        // Clicking empty space (a plain click, not a drag — DragGesture's
+                        // minimumDistance means marqueeGesture never sees this) clears the
+                        // selection, same as Finder. A tap that lands on a card is still the
+                        // card's own onTapGesture; this only ever fires for the gaps.
+                        .onTapGesture {
+                            if selectMode { selected.removeAll() }
+                        }
+                        .overlay(alignment: .topLeading) {
+                            if let rect = marqueeRect {
+                                Rectangle()
+                                    .fill(Color.accentColor.opacity(0.12))
+                                    .overlay(Rectangle().stroke(Color.accentColor, lineWidth: 1))
+                                    .frame(width: rect.width, height: rect.height)
+                                    .position(x: rect.midX, y: rect.midY)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                        .onPreferenceChange(CardFramePreferenceKey.self) { cardFrames = $0 }
                         .padding(14)
                         .id("gridTop")
                     }
@@ -254,6 +326,17 @@ struct BoardView: View {
             selected.removeAll()
             selectMode = false
         }
+    }
+}
+
+// Collects each card's on-screen frame (in the grid's own "board" coordinate space) so
+// the marquee-drag gesture can hit-test against them. Note ids and group cards share
+// this dictionary; group entries are keyed "group:<name>" so the selection math (which
+// only ever selects notes) can filter them out by key prefix alone.
+private struct CardFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue()) { _, new in new }
     }
 }
 
